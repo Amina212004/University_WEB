@@ -16,7 +16,6 @@ class University(Base):
 
     # Relations
     users    = relationship("User",    back_populates="university", cascade="all, delete-orphan")
-    faculties = relationship("Faculty", back_populates="university", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<University(id={self.id}, name={self.name}, subdomain={self.subdomain})>"
