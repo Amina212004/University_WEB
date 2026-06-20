@@ -1,14 +1,48 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
-function App() {
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
+
+import Home from './pages/Home';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import Dashboard from './pages/Dashboard';
+
+import './index.css';
+
+// Redirige vers le dashboard si déjà connecté
+const PublicOnlyRoute = ({ children }) => {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="page-loader"><span className="spinner" /></div>;
+  if (user) return <Navigate to="/dashboard" replace />;
+  return children;
+};
+
+// Protège les routes privées
+const PrivateRoute = ({ children }) => {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="page-loader"><span className="spinner" /></div>;
+  if (!user) return <Navigate to="/login" replace />;
+  return children;
+};
+
+function AppRoutes() {
   return (
-    <h1 className="text-3xl font-bold text-lime-500 bg-black p-8">
-      Tailwind fonctionne
-    </h1>
-  )
+    <Routes>
+      <Route path="/" element={<PublicOnlyRoute><Home /></PublicOnlyRoute>} />
+      <Route path="/login" element={<PublicOnlyRoute><Login /></PublicOnlyRoute>} />
+      <Route path="/register" element={<PublicOnlyRoute><Register /></PublicOnlyRoute>} />
+      <Route path="/dashboard/*" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+    </Routes>
+  );
 }
 
-export default App
+function App() {
+  return (
+    <AuthProvider>
+      <Router>
+        <AppRoutes />
+      </Router>
+    </AuthProvider>
+  );
+}
+
+export default App;
