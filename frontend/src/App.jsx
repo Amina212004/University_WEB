@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
 import Dashboard from './pages/Dashboard';
 
 import './index.css';
@@ -30,6 +31,7 @@ function AppRoutes() {
       <Route path="/" element={<PublicOnlyRoute><Home /></PublicOnlyRoute>} />
       <Route path="/login" element={<PublicOnlyRoute><Login /></PublicOnlyRoute>} />
       <Route path="/register" element={<PublicOnlyRoute><Register /></PublicOnlyRoute>} />
+      <Route path="/forgot-password" element={<PublicOnlyRoute><ForgotPassword /></PublicOnlyRoute>} />
       <Route path="/dashboard/*" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
     </Routes>
   );
