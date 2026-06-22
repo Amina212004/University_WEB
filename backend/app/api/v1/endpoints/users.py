@@ -36,11 +36,8 @@ def create_new_user(
     - Un admin ne peut pas créer un autre admin.
     """
     # Forcer l'university_id à celui de l'admin connecté
-    if user_in.university_id != current_user.university_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Vous ne pouvez créer des utilisateurs que dans votre université",
-        )
+    user_in.university_id = current_user.university_id
+
 
     if user_in.role == UserRole.ADMIN:
         raise HTTPException(
