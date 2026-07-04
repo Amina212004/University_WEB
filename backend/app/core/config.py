@@ -16,9 +16,16 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "University SaaS API"
     VERSION: str = "1.0.0"
 
+    # SMTP / Mail Settings
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = "uniorau@gmail.com"
+    SMTP_PASSWORD: str = "uniora2026"
+
     class Config:
         env_file = ".env"
         case_sensitive = True
 
 
 settings = Settings()
+

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 
@@ -36,3 +36,16 @@ class ResetPasswordRequest(BaseModel):
     """Réinitialisation de mot de passe avec le token."""
     token: str
     new_password: str
+
+
+class VerifyCodeRequest(BaseModel):
+    """Vérification du code à 6 chiffres envoyé par email."""
+    email: str
+    code: str = Field(..., min_length=6, max_length=6)
+
+
+class ConfirmResetRequest(BaseModel):
+    """Confirmation du nouveau mot de passe après vérification du code."""
+    email: str
+    code: str = Field(..., min_length=6, max_length=6)
+    new_password: str = Field(..., min_length=8)
