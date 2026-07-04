@@ -11,6 +11,8 @@ class UserBase(BaseModel):
     email: EmailStr
     role: UserRole
     university_id: Optional[int] = None
+    group_id: Optional[int] = None
+    study_year_id: Optional[int] = None
 
 
 class UserCreate(UserBase):
@@ -23,6 +25,15 @@ class UserCreate(UserBase):
         if len(v) < 8:
             raise ValueError("Le mot de passe doit avoir au moins 8 caractères")
         return v
+
+
+class UserBulkCreate(BaseModel):
+    """Schema for bulk creation without password (auto-generated)."""
+    first_name: str
+    last_name: str
+    email: EmailStr
+    role: UserRole
+    study_year_id: Optional[int] = None
 
 
 class UserUpdate(BaseModel):

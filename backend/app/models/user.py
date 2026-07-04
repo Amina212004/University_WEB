@@ -28,8 +28,16 @@ class User(Base):
     # Obligatoire : tout le monde (y compris l'admin) appartient à une université
     university_id = Column(Integer, ForeignKey("universities.id", ondelete="CASCADE"), nullable=False)
 
+    # Relation avec le groupe d'étudiants (pour les étudiants)
+    group_id = Column(Integer, ForeignKey("student_groups.id", ondelete="SET NULL"), nullable=True)
+    study_year_id = Column(Integer, ForeignKey("study_years.id", ondelete="SET NULL"), nullable=True)
+
     # Relations
     university = relationship("University", back_populates="users")
+    group = relationship("StudentGroup", back_populates="students")
+    study_year = relationship("StudyYear")
+    taught_years = relationship("StudyYear", secondary="teacher_years", back_populates="teachers")
+    schedules = relationship("Schedule", back_populates="teacher", cascade="all, delete-orphan")
 
     @property
     def full_name(self):

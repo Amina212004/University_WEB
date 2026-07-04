@@ -3,7 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.schemas.user import UserCreate, UserRead, UserUpdate
+from app.schemas.user import UserCreate, UserRead, UserUpdate, UserBulkCreate
+import secrets
+import string
 from app.crud.user import (
     create_user,
     get_user_by_id,
@@ -52,6 +54,58 @@ def create_new_user(
         )
 
     return create_user(db, user_in)
+
+
+def generate_password(length=10):
+    alphabet = string.ascii_letters + string.digits
+    return ''.join(secrets.choice(alphabet) for i in range(length))
+
+@router.post(
+    "/bulk",
+    status_code=status.HTTP_201_CREATED,
+    summary="Créer des utilisateurs en masse [admin]",
+)
+def create_users_bulk(
+    users_in: List[UserBulkCreate],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+):
+    """
+    Importe une liste d'utilisateurs. Génère un mot de passe pour chacun.
+    Retourne la liste des utilisateurs avec leurs mots de passe générés (à usage unique pour l'admin).
+    """
+    results = []
+    for u_in in users_in:
+        # Check if email exists
+        if get_user_by_email(db, u_in.email):
+            continue # Skip or we could raise an error
+
+        if u_in.role == UserRole.ADMIN:
+            continue
+
+        raw_password = generate_password()
+        
+        user_create = UserCreate(
+            first_name=u_in.first_name,
+            last_name=u_in.last_name,
+            email=u_in.email,
+            role=u_in.role,
+            university_id=current_user.university_id,
+            study_year_id=u_in.study_year_id,
+            password=raw_password
+        )
+        
+        created_user = create_user(db, user_create)
+        
+        results.append({
+            "first_name": created_user.first_name,
+            "last_name": created_user.last_name,
+            "email": created_user.email,
+            "role": created_user.role,
+            "generated_password": raw_password
+        })
+
+    return {"imported": len(results), "users": results}
 
 
 @router.get(
