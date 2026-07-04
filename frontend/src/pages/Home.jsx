@@ -116,7 +116,7 @@ export default function Home() {
               </div>
             </div>
             
-            <div className="order-1 lg:order-2 relative group perspective-1000 h-[600px]">
+            <div className="order-1 lg:order-2 relative group perspective-1000 h-[320px] sm:h-[450px] lg:h-[600px]">
               <div className="absolute inset-0 bg-gradient-to-tr from-brand-600 to-accent-600 rounded-[2rem] blur-2xl opacity-30 group-hover:opacity-50 transition-opacity duration-700 animate-tilt-3d" />
               <div className="relative w-full h-full rounded-[2rem] overflow-hidden border border-white/20 shadow-[0_30px_60px_rgba(0,0,0,0.6)] animate-tilt-3d preserve-3d bg-slate-900">
                 

@@ -95,7 +95,7 @@ export default function Register() {
           </Link>
           
           <div className="lg:hidden mb-4 flex justify-center">
-            <img src={logo} alt="Uniora" className="h-12" />
+            <img src={logo} alt="Uniora" className="h-16 filter drop-shadow-[0_4px_12px_rgba(139,92,246,0.25)]" />
           </div>
 
           <h1 className="text-3xl font-extrabold text-brand-600 mb-1 tracking-tight">Créer votre université</h1>

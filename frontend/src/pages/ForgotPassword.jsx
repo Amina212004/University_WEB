@@ -1,31 +1,50 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { forgotPassword, resetPassword } from '../api/services';
-import { ArrowLeft, Mail, Lock, KeyRound, Sparkles, CheckCircle2, Copy, Check } from 'lucide-react';
+import { forgotPassword, verifyCode, confirmResetPassword } from '../api/services';
+import { ArrowLeft, Mail, Lock, ShieldCheck, Sparkles, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import logo from '../assets/Logo.svg';
 
 export default function ForgotPassword() {
-  const [step, setStep] = useState(1); // 1: Email, 2: Token + New Password, 3: Success
+  const [step, setStep] = useState(1); // 1: Email, 2: Code 6 chiffres, 3: New Password, 4: Success
   const [email, setEmail] = useState('');
-  const [token, setToken] = useState('');
+  const [code, setCode] = useState(['', '', '', '', '', '']);
+  const [debugCode, setDebugCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [debugToken, setDebugToken] = useState('');
-  const [copied, setCopied] = useState(false);
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [countdown, setCountdown] = useState(0);
   const navigate = useNavigate();
+  const codeInputRefs = useRef([]);
 
-  const handleRequestToken = async (e) => {
+  // Countdown timer for resend
+  useEffect(() => {
+    if (countdown <= 0) return;
+    const t = setTimeout(() => setCountdown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [countdown]);
+
+  // Auto-focus first code input when step 2 is reached
+  useEffect(() => {
+    if (step === 2 && codeInputRefs.current[0]) {
+      setTimeout(() => codeInputRefs.current[0]?.focus(), 150);
+    }
+  }, [step]);
+
+  // ─── STEP 1: Request Code ───
+  const handleRequestCode = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
       const res = await forgotPassword(email);
-      if (res.data.debug_token) {
-        setDebugToken(res.data.debug_token);
-        setToken(res.data.debug_token); // Préremplir pour le développement
+      if (res.data.debug_code) {
+        setDebugCode(res.data.debug_code);
       }
       setStep(2);
+      setCountdown(60);
     } catch (err) {
       setError(err.response?.data?.detail || 'Une erreur est survenue.');
     } finally {
@@ -33,238 +52,444 @@ export default function ForgotPassword() {
     }
   };
 
-  const handleResetPassword = async (e) => {
+  // ─── STEP 2: Verify 6-digit Code ───
+  const handleCodeChange = (index, value) => {
+    // Allow only digits
+    if (value && !/^\d$/.test(value)) return;
+    const newCode = [...code];
+    newCode[index] = value;
+    setCode(newCode);
+
+    // Auto-focus next input
+    if (value && index < 5) {
+      codeInputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleCodeKeyDown = (index, e) => {
+    if (e.key === 'Backspace' && !code[index] && index > 0) {
+      codeInputRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const handleCodePaste = (e) => {
     e.preventDefault();
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (pasted.length === 6) {
+      setCode(pasted.split(''));
+      codeInputRefs.current[5]?.focus();
+    }
+  };
+
+  const handleVerifyCode = async (e) => {
+    e.preventDefault();
+    const fullCode = code.join('');
+    if (fullCode.length !== 6) {
+      setError('Veuillez saisir le code complet à 6 chiffres.');
+      return;
+    }
     setError('');
     setLoading(true);
     try {
-      await resetPassword(token, newPassword);
+      await verifyCode(email, fullCode);
       setStep(3);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Le code est invalide ou a expiré.');
+      setError(err.response?.data?.detail || 'Code incorrect.');
     } finally {
       setLoading(false);
     }
   };
 
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(debugToken);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleResendCode = async () => {
+    if (countdown > 0) return;
+    setError('');
+    setLoading(true);
+    try {
+      const res = await forgotPassword(email);
+      if (res.data.debug_code) {
+        setDebugCode(res.data.debug_code);
+      }
+      setCode(['', '', '', '', '', '']);
+      setCountdown(60);
+      codeInputRefs.current[0]?.focus();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Erreur lors du renvoi.');
+    } finally {
+      setLoading(false);
+    }
   };
 
+  // ─── STEP 3: New Password ───
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      setError('Les mots de passe ne correspondent pas.');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setError('Le mot de passe doit contenir au moins 8 caractères.');
+      return;
+    }
+    setError('');
+    setLoading(true);
+    try {
+      await confirmResetPassword(email, code.join(''), newPassword);
+      setStep(4);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Erreur lors de la réinitialisation.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ─── Step indicator titles ───
+  const stepTitles = ['', 'Votre Email', 'Code de vérification', 'Nouveau mot de passe', 'Terminé !'];
+
   return (
-    <div className="h-screen w-full flex items-center justify-center relative overflow-hidden bg-[#090d16]" style={{ fontFamily: "'Poppins', sans-serif" }}>
+    <div className="h-screen flex overflow-hidden" style={{ fontFamily: "'Poppins', sans-serif" }}>
       <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
       
-      {/* ─── Dynamic Animated Background ─── */}
-      <div className="absolute inset-0 overflow-hidden z-0">
-        {/* Animated Gradient Background */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[#1e1040] via-[#3b1d6b] to-[#090d16] animate-gradient-xy bg-[length:400%_400%]" />
+      {/* ─── Left: 3D Animated Panel (Same as Register/Login) ─── */}
+      <div className="hidden lg:flex flex-1 relative bg-slate-900 items-center justify-center overflow-hidden reg-perspective">
         
-        {/* Soft Noise Texture Overlay */}
-        <div className="absolute inset-0 opacity-[0.04] bg-[url('data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMjAwIDIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZmlsdGVyIGlkPSJub2lzZUZpbHRlciI+PGZlVHVyYnVsZW5jZSB0eXBlPSJmcmFjdGFsTm9pc2UiIGJhc2VGcmVxdWVuY3k9IjAuNjUiIG51bU9jdGF2ZXM9IjMiIHN0aXRjaFRpbGVzPSJzdGl0Y2giLz48L2ZpbHRlcj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSJ0cmFuc3BhcmVudCIvPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbHRlcj0idXJsKCNub2lzZUZpbHRlcikiIG9wYWNpdHk9IjEiLz48L3N2Zz4=')] mix-blend-overlay"></div>
+        {/* Deep space background */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,#1e1040_0%,#0f172a_70%)]" />
         
-        {/* Floating Animated Shapes */}
-        <ul className="floating-shapes">
-          <li></li><li></li><li></li><li></li><li></li>
-          <li></li><li></li><li></li><li></li><li></li>
-        </ul>
-      </div>
-
-      {/* ─── Centered Premium Card (Agrandie) ─── */}
-      <div className="relative z-10 w-full max-w-xl mx-4 bg-white/95 backdrop-blur-2xl rounded-[2rem] shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)] border border-white/30 p-10 sm:p-12 transition-all duration-500">
-        
-        {/* Header with Back Button and Logo */}
-        <div className="flex items-center justify-between mb-10">
-          {step < 3 ? (
-            <button onClick={() => step === 2 ? setStep(1) : navigate('/login')} className="inline-flex items-center justify-center w-11 h-11 rounded-full bg-slate-50 text-slate-600 hover:bg-brand-50 hover:text-brand-600 transition-all duration-300 group shadow-sm border border-slate-100 hover:border-brand-100">
-              <ArrowLeft size={22} className="group-hover:-translate-x-1 transition-transform duration-300" />
-            </button>
-          ) : <div className="w-11 h-11" />}
-          
-          <img src={logo} alt="Uniora" className="h-10 sm:h-12 filter brightness-100 drop-shadow-sm" />
+        {/* 3D Rotating cube wireframe */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="reg-cube">
+            <div className="reg-cube-face reg-cube-front" />
+            <div className="reg-cube-face reg-cube-back" />
+            <div className="reg-cube-face reg-cube-left" />
+            <div className="reg-cube-face reg-cube-right" />
+            <div className="reg-cube-face reg-cube-top" />
+            <div className="reg-cube-face reg-cube-bottom" />
+          </div>
         </div>
 
-        {/* Step 1: Request Password Reset */}
-        {step === 1 && (
-          <div className="animate-fade-in">
-            <h1 className="text-3xl sm:text-4xl font-black text-slate-800 mb-3 tracking-tight">Mot de passe oublié ?</h1>
-            <p className="text-slate-500 text-base mb-8 font-medium leading-relaxed">Entrez l'adresse email associée à votre compte, nous vous enverrons un code sécurisé pour réinitialiser votre accès.</p>
+        {/* Floating 3D rings */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="reg-ring reg-ring-1" />
+          <div className="reg-ring reg-ring-2" />
+          <div className="reg-ring reg-ring-3" />
+        </div>
 
-            {error && (
-              <div className="bg-red-50/80 backdrop-blur-sm text-red-600 p-4 rounded-2xl text-sm font-bold mb-8 border border-red-100 shadow-sm flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                {error}
-              </div>
-            )}
+        {/* Glowing orbs */}
+        <div className="absolute top-[20%] left-[15%] w-40 h-40 bg-brand-600/30 rounded-full blur-[80px] animate-pulse" style={{ animationDuration: '5s' }} />
+        <div className="absolute bottom-[25%] right-[10%] w-56 h-56 bg-accent-500/20 rounded-full blur-[100px] animate-pulse" style={{ animationDuration: '7s' }} />
 
-            <form onSubmit={handleRequestToken} className="space-y-6">
-              <div className="space-y-2">
-                <label className="block text-xs font-bold text-slate-700 ml-1 uppercase tracking-wider">Votre Email</label>
-                <div className="relative group">
-                  <div className="absolute inset-0 bg-brand-500/10 rounded-2xl blur-md opacity-0 group-focus-within:opacity-100 transition-opacity duration-300" />
-                  <div className="relative bg-white border-2 border-slate-100 rounded-2xl p-1 focus-within:border-brand-200 focus-within:bg-brand-50/30 transition-all duration-300 shadow-sm">
-                    <Mail size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-brand-500 transition-colors" />
-                    <input type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="exemple@universite.dz"
-                      className="w-full pl-12 pr-4 py-4 bg-transparent text-base font-medium outline-none text-slate-800 placeholder:text-slate-300" />
-                  </div>
-                </div>
-              </div>
-
-              <button type="submit" disabled={loading}
-                className="w-full py-4 sm:py-5 bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 text-white rounded-2xl font-bold text-base sm:text-lg shadow-[0_10px_30px_-10px_rgba(139,92,246,0.6)] hover:shadow-[0_15px_35px_-10px_rgba(139,92,246,0.7)] hover:-translate-y-1 transition-all duration-300 flex items-center justify-center gap-2 mt-4">
-                {loading ? <span className="spinner w-6 h-6 border-2" /> : (<><Sparkles size={22} className="text-brand-100" /> Recevoir mon code</>)}
-              </button>
-            </form>
+        {/* Content */}
+        <div className="relative z-10 flex flex-col items-center text-center px-10">
+          <div className="relative group mb-8">
+            <div className="absolute inset-[-20px] rounded-full bg-brand-500/20 blur-2xl animate-pulse group-hover:bg-brand-500/40 transition-all" style={{ animationDuration: '3s' }} />
+            <img src={logo} alt="Uniora" className="relative h-56 filter brightness-0 invert drop-shadow-[0_0_50px_rgba(139,92,246,0.7)] group-hover:scale-110 transition-transform duration-500" />
           </div>
-        )}
-
-        {/* Step 2: Reset Password Form */}
-        {step === 2 && (
-          <div className="animate-fade-in">
-            <h1 className="text-3xl sm:text-4xl font-black text-slate-800 mb-3 tracking-tight">Réinitialisation</h1>
-            <p className="text-slate-500 text-base mb-8 font-medium leading-relaxed">Saisissez le code de sécurité reçu par email et choisissez votre nouveau mot de passe.</p>
-
-            {/* ⚠️ Simulation Token Display ⚠️ */}
-            {debugToken && (
-              <div className="bg-brand-50 border border-brand-200 rounded-2xl p-4 mb-8 flex items-center justify-between text-brand-800 text-sm shadow-sm">
-                <div className="flex-1 min-w-0 pr-4">
-                  <span className="font-bold block mb-1.5 text-brand-600">🔑 Code de simulation (Dev Mode) :</span>
-                  <code className="block bg-white px-3 py-2 rounded-xl border border-brand-100 font-mono text-brand-700 select-all overflow-x-auto truncate shadow-inner">{debugToken}</code>
-                </div>
-                <button onClick={copyToClipboard} className="p-3 bg-white border border-brand-200 hover:bg-brand-100 hover:text-brand-700 text-brand-600 rounded-xl transition-all shadow-sm">
-                  {copied ? <Check size={20} className="text-emerald-600" /> : <Copy size={20} />}
-                </button>
-              </div>
-            )}
-
-            {error && (
-              <div className="bg-red-50/80 backdrop-blur-sm text-red-600 p-4 rounded-2xl text-sm font-bold mb-8 border border-red-100 shadow-sm flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                {error}
-              </div>
-            )}
-
-            <form onSubmit={handleResetPassword} className="space-y-6">
-              <div className="space-y-5">
-                <div className="space-y-2">
-                  <label className="block text-xs font-bold text-slate-700 ml-1 uppercase tracking-wider">Code de sécurité</label>
-                  <div className="relative group">
-                    <div className="absolute inset-0 bg-brand-500/10 rounded-2xl blur-md opacity-0 group-focus-within:opacity-100 transition-opacity duration-300" />
-                    <div className="relative bg-white border-2 border-slate-100 rounded-2xl p-1 focus-within:border-brand-200 focus-within:bg-brand-50/30 transition-all duration-300 shadow-sm">
-                      <KeyRound size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-brand-500 transition-colors" />
-                      <input type="text" required value={token} onChange={e => setToken(e.target.value)} placeholder="Ex: a1b2c3d4..."
-                        className="w-full pl-12 pr-4 py-4 bg-transparent text-base font-medium outline-none text-slate-800 placeholder:text-slate-300" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="block text-xs font-bold text-slate-700 ml-1 uppercase tracking-wider">Nouveau mot de passe</label>
-                  <div className="relative group">
-                    <div className="absolute inset-0 bg-brand-500/10 rounded-2xl blur-md opacity-0 group-focus-within:opacity-100 transition-opacity duration-300" />
-                    <div className="relative bg-white border-2 border-slate-100 rounded-2xl p-1 focus-within:border-brand-200 focus-within:bg-brand-50/30 transition-all duration-300 shadow-sm">
-                      <Lock size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-brand-500 transition-colors" />
-                      <input type="password" required minLength={8} value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Minimum 8 caractères"
-                        className="w-full pl-12 pr-4 py-4 bg-transparent text-base font-medium outline-none text-slate-800 placeholder:text-slate-300" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <button type="submit" disabled={loading}
-                className="w-full py-4 sm:py-5 bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 text-white rounded-2xl font-bold text-base sm:text-lg shadow-[0_10px_30px_-10px_rgba(139,92,246,0.6)] hover:shadow-[0_15px_35px_-10px_rgba(139,92,246,0.7)] hover:-translate-y-1 transition-all duration-300 flex items-center justify-center gap-2 mt-8">
-                {loading ? <span className="spinner w-6 h-6 border-2" /> : (<><CheckCircle2 size={22} className="text-brand-100" /> Mettre à jour</>)}
-              </button>
-            </form>
-          </div>
-        )}
-
-        {/* Step 3: Success */}
-        {step === 3 && (
-          <div className="text-center py-8 animate-fade-in">
-            <div className="w-24 h-24 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-8 border-[6px] border-white shadow-[0_0_40px_rgba(16,185,129,0.2)]">
-              <CheckCircle2 size={48} className="text-emerald-500 animate-bounce" />
-            </div>
-            <h1 className="text-3xl sm:text-4xl font-black text-slate-800 mb-4 tracking-tight">C'est fait !</h1>
-            <p className="text-slate-500 text-base mb-10 leading-relaxed font-medium">Votre mot de passe a été réinitialisé avec succès. Votre sécurité est assurée.</p>
-            
-            <Link to="/login" className="block w-full py-4 sm:py-5 bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 text-white rounded-2xl font-bold text-base sm:text-lg text-center shadow-[0_10px_30px_-10px_rgba(139,92,246,0.6)] hover:shadow-[0_15px_35px_-10px_rgba(139,92,246,0.7)] hover:-translate-y-1 transition-all duration-300">
-              Retourner à la connexion
-            </Link>
-          </div>
-        )}
-
-        {/* Footer Link */}
-        {step < 3 && (
-          <p className="mt-10 text-center text-sm sm:text-base text-slate-500 font-medium">
-            Vous avez retrouvé la mémoire ? <Link to="/login" className="font-bold text-brand-600 hover:text-brand-700 hover:underline transition-colors">Se connecter</Link>
+          <h2 className="text-4xl font-black text-white mb-3 tracking-tight">
+            Récupération <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-300 via-brand-400 to-violet-300">sécurisée</span>
+          </h2>
+          <p className="text-slate-300/80 text-base font-light max-w-xs leading-relaxed">
+            Retrouvez l'accès à votre espace universitaire en quelques étapes simples.
           </p>
-        )}
+        </div>
       </div>
 
-      {/* ─── CSS Animations ─── */}
+      {/* ─── Right: Form Panel ─── */}
+      <div className="flex-1 flex flex-col justify-center items-center px-6 bg-white relative">
+        <div className="w-full max-w-md">
+          
+          {/* Back button */}
+          {step < 4 ? (
+            <button
+              onClick={() => {
+                if (step === 1) navigate('/login');
+                else setStep(step - 1);
+              }}
+              className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-brand-50 text-brand-600 hover:bg-brand-100 hover:text-brand-700 mb-6 transition-all group shadow-sm"
+            >
+              <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
+            </button>
+          ) : <div className="h-10 mb-6" />}
+
+          {/* Logo on mobile */}
+          <div className="lg:hidden mb-4 flex justify-center">
+            <img src={logo} alt="Uniora" className="h-16 filter drop-shadow-[0_4px_12px_rgba(139,92,246,0.25)]" />
+          </div>
+
+          {/* Step Progress Indicator */}
+          {step < 4 && (
+            <div className="flex items-center gap-3 mb-8">
+              {[1, 2, 3].map(s => (
+                <div key={s} className="flex items-center gap-3 flex-1">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-500 ${
+                    s < step ? 'bg-brand-500 text-white scale-90' :
+                    s === step ? 'bg-brand-600 text-white shadow-[0_0_20px_rgba(139,92,246,0.5)] scale-110' :
+                    'bg-slate-100 text-slate-400'
+                  }`}>
+                    {s < step ? <CheckCircle2 size={16} /> : s}
+                  </div>
+                  {s < 3 && (
+                    <div className={`flex-1 h-[3px] rounded-full transition-all duration-500 ${
+                      s < step ? 'bg-brand-500' : 'bg-slate-100'
+                    }`} />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ═══ STEP 1: Email ═══ */}
+          {step === 1 && (
+            <div className="animate-fade-in">
+              <h1 className="text-3xl font-extrabold text-brand-600 mb-1 tracking-tight">Mot de passe oublié ?</h1>
+              <p className="text-slate-400 text-sm mb-6">Entrez votre email pour recevoir un code de vérification à 6 chiffres.</p>
+
+              {error && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-xl text-xs font-medium mb-4 border border-red-100">{error}</div>
+              )}
+
+              <form onSubmit={handleRequestCode} className="space-y-4">
+                <div className="bg-slate-50/80 border border-slate-100 rounded-xl p-5 space-y-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-brand-700 mb-1.5">Adresse Email</label>
+                    <div className="relative">
+                      <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                      <input type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="votre@email.com"
+                        className="w-full pl-10 pr-3 py-3 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 transition-all text-slate-800 placeholder:text-slate-300" />
+                    </div>
+                  </div>
+                </div>
+
+                <button type="submit" disabled={loading}
+                  className="w-full py-3 bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 text-white rounded-xl font-bold text-sm shadow-[0_6px_20px_rgba(139,92,246,0.35)] hover:shadow-[0_10px_30px_rgba(139,92,246,0.5)] hover:-translate-y-0.5 transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed">
+                  {loading ? <span className="spinner" /> : (<><Sparkles size={16} /> Envoyer le code</>)}
+                </button>
+              </form>
+
+              <p className="mt-6 text-center text-xs text-slate-400">
+                Vous avez retrouvé la mémoire ? <Link to="/login" className="font-bold text-brand-600 hover:underline">Se connecter</Link>
+              </p>
+            </div>
+          )}
+
+          {/* ═══ STEP 2: 6-digit Code ═══ */}
+          {step === 2 && (
+            <div className="animate-fade-in">
+              <h1 className="text-3xl font-extrabold text-brand-600 mb-1 tracking-tight">Vérification</h1>
+              <p className="text-slate-400 text-sm mb-2">
+                Un code à 6 chiffres a été envoyé à <span className="font-semibold text-slate-600">{email}</span>
+              </p>
+
+              {error && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-xl text-xs font-medium mb-4 border border-red-100">{error}</div>
+              )}
+
+              <form onSubmit={handleVerifyCode} className="space-y-6">
+                {/* 6-digit Code Inputs */}
+                <div className="bg-slate-50/80 border border-slate-100 rounded-xl p-5">
+                  <label className="block text-sm font-semibold text-brand-700 mb-4 text-center">Saisissez votre code</label>
+                  <div className="flex justify-center gap-3" onPaste={handleCodePaste}>
+                    {code.map((digit, i) => (
+                      <input
+                        key={i}
+                        ref={el => codeInputRefs.current[i] = el}
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={1}
+                        value={digit}
+                        onChange={e => handleCodeChange(i, e.target.value)}
+                        onKeyDown={e => handleCodeKeyDown(i, e)}
+                        className={`w-12 h-14 text-center text-xl font-bold border-2 rounded-xl outline-none transition-all duration-300 bg-white
+                          ${digit ? 'border-brand-500 text-brand-700 shadow-[0_0_12px_rgba(139,92,246,0.15)]' : 'border-slate-200 text-slate-800'}
+                          focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:shadow-[0_0_15px_rgba(139,92,246,0.2)]`}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <button type="submit" disabled={loading || code.join('').length !== 6}
+                  className="w-full py-3 bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 text-white rounded-xl font-bold text-sm shadow-[0_6px_20px_rgba(139,92,246,0.35)] hover:shadow-[0_10px_30px_rgba(139,92,246,0.5)] hover:-translate-y-0.5 transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed">
+                  {loading ? <span className="spinner" /> : (<><ShieldCheck size={16} /> Vérifier le code</>)}
+                </button>
+              </form>
+
+              {/* Resend code */}
+              <div className="mt-5 text-center">
+                {countdown > 0 ? (
+                  <p className="text-xs text-slate-400">Renvoyer le code dans <span className="font-bold text-brand-600">{countdown}s</span></p>
+                ) : (
+                  <button onClick={handleResendCode} disabled={loading} className="text-xs font-bold text-brand-600 hover:text-brand-700 hover:underline transition-colors disabled:opacity-50">
+                    Renvoyer un nouveau code
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ═══ STEP 3: New Password ═══ */}
+          {step === 3 && (
+            <div className="animate-fade-in">
+              <h1 className="text-3xl font-extrabold text-brand-600 mb-1 tracking-tight">Nouveau mot de passe</h1>
+              <p className="text-slate-400 text-sm mb-6">Choisissez un nouveau mot de passe sécurisé pour votre compte.</p>
+
+              {error && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-xl text-xs font-medium mb-4 border border-red-100">{error}</div>
+              )}
+
+              <form onSubmit={handleResetPassword} className="space-y-4">
+                <div className="bg-slate-50/80 border border-slate-100 rounded-xl p-5 space-y-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-brand-700 mb-1.5">Nouveau mot de passe</label>
+                    <div className="relative">
+                      <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                      <input type={showPassword ? 'text' : 'password'} required minLength={8} value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Minimum 8 caractères"
+                        className="w-full pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 transition-all text-slate-800 placeholder:text-slate-300" />
+                      <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-brand-500 transition-colors">
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-brand-700 mb-1.5">Confirmer le mot de passe</label>
+                    <div className="relative">
+                      <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                      <input type={showConfirm ? 'text' : 'password'} required minLength={8} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Retapez le mot de passe"
+                        className={`w-full pl-10 pr-10 py-3 bg-white border rounded-lg text-sm outline-none focus:ring-2 transition-all text-slate-800 placeholder:text-slate-300 ${
+                          confirmPassword && confirmPassword !== newPassword
+                            ? 'border-red-300 focus:border-red-400 focus:ring-red-500/10'
+                            : confirmPassword && confirmPassword === newPassword
+                              ? 'border-emerald-300 focus:border-emerald-400 focus:ring-emerald-500/10'
+                              : 'border-slate-200 focus:border-brand-500 focus:ring-brand-500/10'
+                        }`} />
+                      <button type="button" onClick={() => setShowConfirm(!showConfirm)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-brand-500 transition-colors">
+                        {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                    {confirmPassword && confirmPassword === newPassword && (
+                      <p className="text-emerald-500 text-xs mt-1.5 font-medium flex items-center gap-1"><CheckCircle2 size={12} /> Les mots de passe correspondent</p>
+                    )}
+                    {confirmPassword && confirmPassword !== newPassword && (
+                      <p className="text-red-500 text-xs mt-1.5 font-medium">Les mots de passe ne correspondent pas</p>
+                    )}
+                  </div>
+
+                  {/* Password strength indicator */}
+                  {newPassword && (
+                    <div className="space-y-2">
+                      <div className="flex gap-1.5">
+                        {[1, 2, 3, 4].map(i => (
+                          <div key={i} className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${
+                            newPassword.length >= i * 3
+                              ? i <= 1 ? 'bg-red-400' : i <= 2 ? 'bg-amber-400' : i <= 3 ? 'bg-brand-400' : 'bg-emerald-400'
+                              : 'bg-slate-100'
+                          }`} />
+                        ))}
+                      </div>
+                      <p className="text-xs text-slate-400">
+                        {newPassword.length < 4 ? 'Très faible' : newPassword.length < 7 ? 'Faible' : newPassword.length < 10 ? 'Bon' : 'Excellent'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <button type="submit" disabled={loading || !newPassword || !confirmPassword || newPassword !== confirmPassword}
+                  className="w-full py-3 bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 text-white rounded-xl font-bold text-sm shadow-[0_6px_20px_rgba(139,92,246,0.35)] hover:shadow-[0_10px_30px_rgba(139,92,246,0.5)] hover:-translate-y-0.5 transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed">
+                  {loading ? <span className="spinner" /> : (<><CheckCircle2 size={16} /> Réinitialiser le mot de passe</>)}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* ═══ STEP 4: Success ═══ */}
+          {step === 4 && (
+            <div className="text-center animate-fade-in">
+              <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-6 border-4 border-white shadow-[0_0_30px_rgba(16,185,129,0.2)]">
+                <CheckCircle2 size={40} className="text-emerald-500" />
+              </div>
+              <h1 className="text-3xl font-extrabold text-slate-800 mb-2 tracking-tight">C'est fait !</h1>
+              <p className="text-slate-400 text-sm mb-8">Votre mot de passe a été réinitialisé avec succès. Vous pouvez maintenant vous connecter avec votre nouveau mot de passe.</p>
+              
+              <Link to="/login"
+                className="block w-full py-3 bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 text-white rounded-xl font-bold text-sm text-center shadow-[0_6px_20px_rgba(139,92,246,0.35)] hover:shadow-[0_10px_30px_rgba(139,92,246,0.5)] hover:-translate-y-0.5 transition-all duration-300">
+                Se connecter
+              </Link>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 3D CSS Animations (Same as Register/Login) */}
       <style dangerouslySetInnerHTML={{__html: `
-        @keyframes gradientXY {
-          0% { background-position: 0% 50%; }
-          50% { background-position: 100% 50%; }
-          100% { background-position: 0% 50%; }
+        .reg-perspective { perspective: 1200px; }
+
+        /* ── 3D Rotating Cube ── */
+        .reg-cube {
+          width: 220px; height: 220px;
+          position: relative;
+          transform-style: preserve-3d;
+          animation: regCubeRotate 18s linear infinite;
         }
-        .animate-gradient-xy {
-          animation: gradientXY 12s ease infinite;
+        .reg-cube-face {
+          position: absolute; width: 100%; height: 100%;
+          border: 1.5px solid rgba(139, 92, 246, 0.15);
+          border-radius: 18px;
+          background: rgba(139, 92, 246, 0.02);
+        }
+        .reg-cube-front  { transform: translateZ(110px); }
+        .reg-cube-back   { transform: translateZ(-110px) rotateY(180deg); }
+        .reg-cube-left   { transform: translateX(-110px) rotateY(-90deg); }
+        .reg-cube-right  { transform: translateX(110px) rotateY(90deg); }
+        .reg-cube-top    { transform: translateY(-110px) rotateX(90deg); }
+        .reg-cube-bottom { transform: translateY(110px) rotateX(-90deg); }
+
+        @keyframes regCubeRotate {
+          0%   { transform: rotateX(0deg) rotateY(0deg); }
+          100% { transform: rotateX(360deg) rotateY(360deg); }
         }
 
-        .floating-shapes {
+        /* ── 3D Tilting Rings ── */
+        .reg-ring {
           position: absolute;
-          top: 0; left: 0;
-          width: 100%; height: 100%;
-          overflow: hidden;
-          margin: 0; padding: 0;
+          border-radius: 50%;
+          border: 1.5px solid transparent;
+          transform-style: preserve-3d;
+        }
+        .reg-ring-1 {
+          width: 400px; height: 400px;
+          border-color: rgba(139, 92, 246, 0.12);
+          animation: regRing1 12s linear infinite;
+        }
+        .reg-ring-2 {
+          width: 320px; height: 320px;
+          border-color: rgba(249, 115, 22, 0.1);
+          animation: regRing2 10s linear infinite;
+        }
+        .reg-ring-3 {
+          width: 500px; height: 500px;
+          border-color: rgba(139, 92, 246, 0.06);
+          animation: regRing3 16s linear infinite;
         }
 
-        .floating-shapes li {
-          position: absolute;
-          display: block;
-          list-style: none;
-          width: 20px; height: 20px;
-          background: rgba(139, 92, 246, 0.1);
-          border: 1px solid rgba(139, 92, 246, 0.2);
-          backdrop-filter: blur(4px);
-          animation: floatUp 25s linear infinite;
-          bottom: -150px;
+        @keyframes regRing1 {
+          0%   { transform: rotateX(70deg) rotateZ(0deg); }
+          100% { transform: rotateX(70deg) rotateZ(360deg); }
+        }
+        @keyframes regRing2 {
+          0%   { transform: rotateX(50deg) rotateY(30deg) rotateZ(0deg); }
+          100% { transform: rotateX(50deg) rotateY(30deg) rotateZ(-360deg); }
+        }
+        @keyframes regRing3 {
+          0%   { transform: rotateX(80deg) rotateY(-20deg) rotateZ(0deg); }
+          100% { transform: rotateX(80deg) rotateY(-20deg) rotateZ(360deg); }
         }
 
-        .floating-shapes li:nth-child(1) { left: 25%; width: 80px; height: 80px; animation-delay: 0s; }
-        .floating-shapes li:nth-child(2) { left: 10%; width: 30px; height: 30px; animation-delay: 2s; animation-duration: 12s; }
-        .floating-shapes li:nth-child(3) { left: 70%; width: 40px; height: 40px; animation-delay: 4s; }
-        .floating-shapes li:nth-child(4) { left: 40%; width: 60px; height: 60px; animation-delay: 0s; animation-duration: 18s; }
-        .floating-shapes li:nth-child(5) { left: 65%; width: 30px; height: 30px; animation-delay: 0s; }
-        .floating-shapes li:nth-child(6) { left: 75%; width: 110px; height: 110px; animation-delay: 3s; }
-        .floating-shapes li:nth-child(7) { left: 35%; width: 150px; height: 150px; animation-delay: 7s; }
-        .floating-shapes li:nth-child(8) { left: 50%; width: 45px; height: 45px; animation-delay: 15s; animation-duration: 45s; }
-        .floating-shapes li:nth-child(9) { left: 20%; width: 25px; height: 25px; animation-delay: 2s; animation-duration: 35s; }
-        .floating-shapes li:nth-child(10) { left: 85%; width: 150px; height: 150px; animation-delay: 0s; animation-duration: 11s; }
-
-        @keyframes floatUp {
-          0% {
-            transform: translateY(0) rotate(0deg);
-            opacity: 1;
-            border-radius: 0;
-          }
-          100% {
-            transform: translateY(-100vh) rotate(720deg);
-            opacity: 0;
-            border-radius: 50%;
-          }
-        }
-
+        /* ── Fade In Animation ── */
         @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px); }
+          from { opacity: 0; transform: translateY(12px); }
           to { opacity: 1; transform: translateY(0); }
         }
         .animate-fade-in {
-          animation: fadeIn 0.5s ease-out forwards;
+          animation: fadeIn 0.4s ease-out forwards;
         }
       `}} />
     </div>

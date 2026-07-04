@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { getUsers, createUser, deleteUser } from '../api/services';
-import { Users, Plus, Trash2, Mail, LayoutDashboard, Settings, LogOut } from 'lucide-react';
+import { Users, Plus, Trash2, Mail, LayoutDashboard, Settings, LogOut, Menu, X } from 'lucide-react';
 import logo from '../assets/Logo.svg';
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
   const [users, setUsers] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [formData, setFormData] = useState({
     first_name: '', last_name: '', email: '', password: '', role: 'teacher'
   });
@@ -54,11 +55,22 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
+    <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden">
+      {/* Sidebar Overlay for Mobile */}
+      {isSidebarOpen && (
+        <div 
+          onClick={() => setIsSidebarOpen(false)} 
+          className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-30 md:hidden"
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col">
-        <div className="h-20 flex items-center px-6 border-b border-slate-100">
-          <img src={logo} alt="Uniora" className="h-10" />
+      <aside className={`w-64 bg-white border-r border-slate-200 flex flex-col fixed md:static inset-y-0 left-0 z-40 transform transition-transform duration-300 md:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="h-20 flex items-center justify-between px-6 border-b border-slate-100">
+          <img src={logo} alt="Uniora" className="h-12 filter drop-shadow-[0_2px_8px_rgba(139,92,246,0.15)]" />
+          <button onClick={() => setIsSidebarOpen(false)} className="md:hidden p-1 rounded-lg text-slate-500 hover:bg-slate-100">
+            <X size={20} />
+          </button>
         </div>
         <nav className="flex-1 p-4 space-y-2">
           <a href="#" className="flex items-center gap-3 px-4 py-3 bg-brand-50 text-brand-600 rounded-xl font-medium">
@@ -80,10 +92,15 @@ export default function Dashboard() {
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Header */}
-        <header className="h-20 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-8 shrink-0">
-          <h1 className="text-xl font-bold text-slate-800">
-            Espace {user?.role === 'admin' ? 'Administration' : user?.role === 'teacher' ? 'Professeur' : 'Étudiant'}
-          </h1>
+        <header className="h-20 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-6 md:px-8 shrink-0">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setIsSidebarOpen(true)} className="md:hidden p-2 rounded-lg text-slate-500 hover:bg-slate-100">
+              <Menu size={22} />
+            </button>
+            <h1 className="text-lg md:text-xl font-bold text-slate-800">
+              Espace {user?.role === 'admin' ? 'Administration' : user?.role === 'teacher' ? 'Professeur' : 'Étudiant'}
+            </h1>
+          </div>
           <div className="flex items-center gap-4">
             <div className="text-right">
               <div className="text-sm font-bold text-slate-900">{user?.first_name} {user?.last_name}</div>
@@ -96,7 +113,7 @@ export default function Dashboard() {
         </header>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-auto p-8">
+        <div className="flex-1 overflow-auto p-4 md:p-8">
           
           {/* Stats Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
