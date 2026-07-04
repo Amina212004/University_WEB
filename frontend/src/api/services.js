@@ -52,3 +52,27 @@ export const updateUser = (id, data) =>
 
 export const deleteUser = (id) =>
   API.delete(`/users/${id}`);
+
+export const createUsersBulk = (data) =>
+  API.post('/users/bulk', data);
+
+// ═══ Académique ═════════════════════════════════════════════════════════════
+
+export const getStudyYears = () =>
+  API.get('/academic/years');
+
+export const createStudyYear = (data) =>
+  API.post('/academic/years', data);
+
+export const autoGroupStudents = (study_year_id) =>
+  API.post(`/academic/years/${study_year_id}/auto-group`);
+
+export const assignTeacherToYear = (study_year_id, teacher_id) =>
+  API.post(`/academic/years/${study_year_id}/teachers/${teacher_id}`);
+
+export const createSchedule = (data) =>
+  API.post(`/academic/schedules`, data);
+
+export const getGroupSchedules = (group_id) =>
+  API.get(`/academic/schedules/group/${group_id}`);
+
