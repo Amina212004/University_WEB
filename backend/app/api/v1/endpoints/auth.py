@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from jose import JWTError
 import random
 import string
+import base64
+import os
 from datetime import datetime, timezone, timedelta
 
 from app.db.session import get_db
@@ -12,9 +14,9 @@ from app.schemas.token import (
     ForgotPasswordRequest, ResetPasswordRequest,
     VerifyCodeRequest, ConfirmResetRequest,
 )
-from app.schemas.user import UserRead
+from app.schemas.user import UserRead, ProfileUpdate
 from app.crud.user import authenticate_user, get_user_by_id, get_user_by_email, update_user
-from app.core.security import create_access_token, create_refresh_token, decode_token, create_password_reset_token, hash_password
+from app.core.security import create_access_token, create_refresh_token, decode_token, create_password_reset_token, hash_password, verify_password
 from app.core.dependencies import get_current_user
 from app.models.user import User
 
@@ -115,6 +117,94 @@ def get_me(current_user: User = Depends(get_current_user)):
     """
     Retourne les informations du compte de l'utilisateur authentifié.
     """
+    return current_user
+
+
+@router.put("/me", response_model=UserRead, summary="Mettre à jour son propre profil")
+def update_me(
+    profile_in: ProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Permet à l'utilisateur connecté de modifier son profil (nom, prénom, email, mot de passe).
+    Le changement de mot de passe requiert de fournir l'ancien mot de passe.
+    """
+    # If user wants to change password, verify current one first
+    if profile_in.new_password:
+        if not profile_in.current_password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Le mot de passe actuel est requis pour en définir un nouveau.",
+            )
+        if not verify_password(profile_in.current_password, current_user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Mot de passe actuel incorrect.",
+            )
+        if len(profile_in.new_password) < 8:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Le nouveau mot de passe doit contenir au moins 8 caractères.",
+            )
+
+    # Check email uniqueness
+    if profile_in.email and profile_in.email != current_user.email:
+        existing = get_user_by_email(db, profile_in.email)
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cet email est déjà utilisé.",
+            )
+
+    # Build the update
+    if profile_in.first_name:
+        current_user.first_name = profile_in.first_name
+    if profile_in.last_name:
+        current_user.last_name = profile_in.last_name
+    if profile_in.email:
+        current_user.email = profile_in.email
+    if profile_in.new_password:
+        current_user.hashed_password = hash_password(profile_in.new_password)
+
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@router.post("/me/avatar", response_model=UserRead, summary="Uploader une photo de profil")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Upload une photo de profil. L'image est convertie en base64 et stockée dans la DB.
+    Formats acceptés: JPEG, PNG, WebP (max 2MB).
+    """
+    # Validate file type
+    allowed_types = {"image/jpeg", "image/png", "image/webp", "image/jpg"}
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Format non supporté. Utilisez JPEG, PNG ou WebP.",
+        )
+
+    # Read and validate size (2MB max)
+    contents = await file.read()
+    if len(contents) > 2 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="L'image est trop grande. Taille maximum : 2MB.",
+        )
+
+    # Convert to base64 data URI
+    b64 = base64.b64encode(contents).decode("utf-8")
+    data_uri = f"data:{file.content_type};base64,{b64}"
+
+    current_user.avatar_url = data_uri
+    db.commit()
+    db.refresh(current_user)
     return current_user
 
 

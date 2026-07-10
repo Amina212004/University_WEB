@@ -1,72 +1,87 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Table, Time, Enum
+from sqlalchemy import Column, Integer, String, ForeignKey, Table
 from sqlalchemy.orm import relationship
 from app.db.base import Base
-import enum
 
-# Table d'association entre Professeurs et Années d'étude (Niveaux)
-teacher_years = Table(
-    "teacher_years",
+# Table d'association : Inscription des étudiants à un Niveau (ex: L1 Informatique)
+student_enrollments = Table(
+    "student_enrollments",
     Base.metadata,
-    Column("teacher_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
-    Column("study_year_id", Integer, ForeignKey("study_years.id", ondelete="CASCADE"), primary_key=True)
+    Column("student_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("level_id", Integer, ForeignKey("levels.id", ondelete="CASCADE"), primary_key=True)
 )
 
-class DayOfWeek(str, enum.Enum):
-    MONDAY = "monday"
-    TUESDAY = "tuesday"
-    WEDNESDAY = "wednesday"
-    THURSDAY = "thursday"
-    FRIDAY = "friday"
-    SATURDAY = "saturday"
-    SUNDAY = "sunday"
+# Table d'association : Affectation des professeurs aux Modules
+teacher_modules = Table(
+    "teacher_modules",
+    Base.metadata,
+    Column("teacher_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("module_id", Integer, ForeignKey("modules.id", ondelete="CASCADE"), primary_key=True)
+)
 
-class StudyYear(Base):
-    """Ex: Informatique L1, Médecine 2ème année"""
-    __tablename__ = "study_years"
+class Faculty(Base):
+    __tablename__ = "faculties"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     university_id = Column(Integer, ForeignKey("universities.id", ondelete="CASCADE"), nullable=False)
-    
+    head_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
     university = relationship("University")
-    sections = relationship("Section", back_populates="study_year", cascade="all, delete-orphan")
-    teachers = relationship("User", secondary=teacher_years, back_populates="taught_years")
+    departments = relationship("Department", back_populates="faculty", cascade="all, delete-orphan")
+    head = relationship("User")
 
-class Section(Base):
-    """Ex: Section A (100 étudiants)"""
-    __tablename__ = "sections"
+class Department(Base):
+    __tablename__ = "departments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    faculty_id = Column(Integer, ForeignKey("faculties.id", ondelete="CASCADE"), nullable=False)
+    head_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    faculty = relationship("Faculty", back_populates="departments")
+    specialties = relationship("Specialty", back_populates="department", cascade="all, delete-orphan")
+    head = relationship("User")
+
+class Specialty(Base):
+    __tablename__ = "specialties"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"), nullable=False)
+
+    department = relationship("Department", back_populates="specialties")
+    levels = relationship("Level", back_populates="specialty", cascade="all, delete-orphan")
+
+class Level(Base):
+    """Ex: L1, L2, M1"""
+    __tablename__ = "levels"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(50), nullable=False)
-    study_year_id = Column(Integer, ForeignKey("study_years.id", ondelete="CASCADE"), nullable=False)
-    
-    study_year = relationship("StudyYear", back_populates="sections")
-    groups = relationship("StudentGroup", back_populates="section", cascade="all, delete-orphan")
+    specialty_id = Column(Integer, ForeignKey("specialties.id", ondelete="CASCADE"), nullable=False)
 
-class StudentGroup(Base):
-    """Ex: Groupe 1 (25 étudiants)"""
-    __tablename__ = "student_groups"
+    specialty = relationship("Specialty", back_populates="levels")
+    semesters = relationship("Semester", back_populates="level", cascade="all, delete-orphan")
+    students = relationship("User", secondary=student_enrollments, back_populates="enrolled_levels")
+
+class Semester(Base):
+    """Ex: S1, S2"""
+    __tablename__ = "semesters"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(50), nullable=False)
-    section_id = Column(Integer, ForeignKey("sections.id", ondelete="CASCADE"), nullable=False)
-    
-    section = relationship("Section", back_populates="groups")
-    students = relationship("User", back_populates="group")
-    schedules = relationship("Schedule", back_populates="group", cascade="all, delete-orphan")
+    level_id = Column(Integer, ForeignKey("levels.id", ondelete="CASCADE"), nullable=False)
 
-class Schedule(Base):
-    """Emploi du temps"""
-    __tablename__ = "schedules"
+    level = relationship("Level", back_populates="semesters")
+    modules = relationship("Module", back_populates="semester", cascade="all, delete-orphan")
+
+class Module(Base):
+    """Ex: Algorithmique, Base de données"""
+    __tablename__ = "modules"
 
     id = Column(Integer, primary_key=True, index=True)
-    teacher_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    group_id = Column(Integer, ForeignKey("student_groups.id", ondelete="CASCADE"), nullable=False)
-    subject = Column(String(100), nullable=False)
-    day_of_week = Column(Enum(DayOfWeek), nullable=False)
-    start_time = Column(Time, nullable=False)
-    end_time = Column(Time, nullable=False)
-    room = Column(String(50), nullable=True)
+    name = Column(String(100), nullable=False)
+    semester_id = Column(Integer, ForeignKey("semesters.id", ondelete="CASCADE"), nullable=False)
 
-    teacher = relationship("User", back_populates="schedules")
-    group = relationship("StudentGroup", back_populates="schedules")
+    semester = relationship("Semester", back_populates="modules")
+    teachers = relationship("User", secondary=teacher_modules, back_populates="taught_modules")

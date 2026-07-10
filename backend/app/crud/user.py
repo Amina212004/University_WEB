@@ -70,13 +70,19 @@ def update_user(db: Session, user: User, user_update: UserUpdate) -> User:
     return user
 
 
-def deactivate_user(db: Session, user: User) -> User:
-    """Désactive un utilisateur (soft delete)."""
-    user.is_active = False
+def toggle_user_active(db: Session, user: User) -> User:
+    """Active ou désactive un utilisateur."""
+    user.is_active = not user.is_active
     db.commit()
     db.refresh(user)
     return user
 
+def reset_user_password(db: Session, user: User, new_password: str) -> User:
+    """Réinitialise le mot de passe d'un utilisateur."""
+    user.hashed_password = hash_password(new_password)
+    db.commit()
+    db.refresh(user)
+    return user
 
 def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
     """

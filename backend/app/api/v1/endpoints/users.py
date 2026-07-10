@@ -1,5 +1,5 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile, Form
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -12,8 +12,10 @@ from app.crud.user import (
     get_user_by_email,
     get_users_by_university,
     update_user,
-    deactivate_user,
+    toggle_user_active,
+    reset_user_password,
 )
+from pydantic import BaseModel
 from app.core.dependencies import get_current_admin, get_current_user
 from app.models.user import User, UserRole
 
@@ -91,7 +93,6 @@ def create_users_bulk(
             email=u_in.email,
             role=u_in.role,
             university_id=current_user.university_id,
-            study_year_id=u_in.study_year_id,
             password=raw_password
         )
         
@@ -103,6 +104,84 @@ def create_users_bulk(
             "email": created_user.email,
             "role": created_user.role,
             "generated_password": raw_password
+        })
+
+    return {"imported": len(results), "users": results}
+
+
+@router.post(
+    "/bulk/excel",
+    status_code=status.HTTP_201_CREATED,
+    summary="Importer des étudiants via Excel et les inscrire à un niveau [admin]",
+)
+async def create_users_excel(
+    level_id: int = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+):
+    """
+    Importe une liste d'étudiants depuis un fichier Excel (.xlsx).
+    Colonnes attendues: Prénom, Nom, Email, Mot de passe.
+    Les étudiants créés sont automatiquement inscrits au `level_id` fourni.
+    """
+    import io
+    import openpyxl
+    from app.crud.academic import enroll_student_in_level
+
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Format non supporté. Veuillez utiliser .xlsx ou .xls")
+
+    contents = await file.read()
+    try:
+        workbook = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
+        sheet = workbook.active
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Erreur de lecture du fichier Excel: {str(e)}")
+
+    results = []
+    
+    for row in sheet.iter_rows(values_only=True):
+        if not row or not row[0]:
+            continue
+            
+        first_name = str(row[0]).strip() if row[0] else ""
+        last_name = str(row[1]).strip() if len(row) > 1 and row[1] else ""
+        email = str(row[2]).strip() if len(row) > 2 and row[2] else ""
+        password = str(row[3]).strip() if len(row) > 3 and row[3] else ""
+        
+        # Ignorer l'en-tête potentiel
+        if first_name.lower() in ["prénom", "prenom"]:
+            continue
+            
+        if not email or not password:
+            continue
+            
+        # Si l'étudiant existe déjà avec cet email, on l'ignore (ou on pourrait juste l'inscrire)
+        if get_user_by_email(db, email):
+            continue 
+            
+        user_create = UserCreate(
+            first_name=first_name,
+            last_name=last_name,
+            email=email,
+            role=UserRole.STUDENT,
+            university_id=current_user.university_id,
+            password=password
+        )
+        
+        created_user = create_user(db, user_create)
+        
+        # Inscrire l'étudiant au niveau
+        try:
+            enroll_student_in_level(db, created_user.id, level_id)
+        except Exception:
+            pass # Ignore si déjà inscrit
+        
+        results.append({
+            "first_name": created_user.first_name,
+            "last_name": created_user.last_name,
+            "email": created_user.email,
         })
 
     return {"imported": len(results), "users": results}
@@ -183,17 +262,17 @@ def update_user_endpoint(
     return update_user(db, user, user_update)
 
 
-@router.delete(
-    "/{user_id}",
+@router.put(
+    "/{user_id}/toggle-active",
     response_model=UserRead,
-    summary="Désactiver un utilisateur [admin]",
+    summary="Activer/Désactiver un utilisateur [admin]",
 )
-def delete_user(
+def toggle_user_active_endpoint(
     user_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin),
 ):
-    """L'admin désactive un utilisateur de son université (soft delete)."""
+    """L'admin active/désactive un utilisateur de son université."""
     user = get_user_by_id(db, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
@@ -201,4 +280,28 @@ def delete_user(
     if user.university_id != current_user.university_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Accès refusé")
 
-    return deactivate_user(db, user)
+    return toggle_user_active(db, user)
+
+class PasswordResetReq(BaseModel):
+    new_password: str
+
+@router.put(
+    "/{user_id}/reset-password",
+    response_model=UserRead,
+    summary="Réinitialiser le mot de passe d'un utilisateur [admin]",
+)
+def reset_user_password_endpoint(
+    user_id: int,
+    reset_req: PasswordResetReq,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+):
+    """L'admin réinitialise le mot de passe d'un utilisateur de son université."""
+    user = get_user_by_id(db, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+
+    if user.university_id != current_user.university_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Accès refusé")
+
+    return reset_user_password(db, user, reset_req.new_password)

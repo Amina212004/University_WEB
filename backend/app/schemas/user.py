@@ -11,9 +11,6 @@ class UserBase(BaseModel):
     email: EmailStr
     role: UserRole
     university_id: Optional[int] = None
-    group_id: Optional[int] = None
-    study_year_id: Optional[int] = None
-
 
 class UserCreate(UserBase):
     """Schema pour créer un utilisateur. Inclut le mot de passe en clair."""
@@ -33,8 +30,6 @@ class UserBulkCreate(BaseModel):
     last_name: str
     email: EmailStr
     role: UserRole
-    study_year_id: Optional[int] = None
-
 
 class UserUpdate(BaseModel):
     """Schema pour modifier un utilisateur. Tous les champs sont optionnels."""
@@ -49,7 +44,17 @@ class UserRead(UserBase):
     """Schema pour lire/retourner un utilisateur (sans mot de passe)."""
     id: int
     is_active: bool
+    avatar_url: Optional[str] = None
     created_at: datetime
     full_name: str
 
     model_config = {"from_attributes": True}
+
+
+class ProfileUpdate(BaseModel):
+    """Schema pour qu'un utilisateur mette à jour son propre profil."""
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    current_password: Optional[str] = None
+    new_password: Optional[str] = None

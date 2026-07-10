@@ -1,69 +1,85 @@
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import time
-from app.models.academic import DayOfWeek
-from app.schemas.user import UserRead
 
-# ─── Schemas for Schedule ──────────────────────────────────────────────
-class ScheduleBase(BaseModel):
-    subject: str
-    day_of_week: DayOfWeek
-    start_time: time
-    end_time: time
-    room: Optional[str] = None
-    teacher_id: int
-    group_id: int
+# --- Faculty ---
+class FacultyBase(BaseModel):
+    name: str
+    head_id: Optional[int] = None
 
-class ScheduleCreate(ScheduleBase):
+class FacultyCreate(FacultyBase):
     pass
 
-class ScheduleRead(ScheduleBase):
+class FacultyRead(FacultyBase):
     id: int
-
-    model_config = {"from_attributes": True}
-
-
-# ─── Schemas for StudentGroup ──────────────────────────────────────────
-class StudentGroupBase(BaseModel):
-    name: str
-    section_id: int
-
-class StudentGroupCreate(StudentGroupBase):
-    pass
-
-class StudentGroupRead(StudentGroupBase):
-    id: int
-    students: List[UserRead] = []
-
-    model_config = {"from_attributes": True}
-
-
-# ─── Schemas for Section ───────────────────────────────────────────────
-class SectionBase(BaseModel):
-    name: str
-    study_year_id: int
-
-class SectionCreate(SectionBase):
-    pass
-
-class SectionRead(SectionBase):
-    id: int
-    groups: List[StudentGroupRead] = []
-
-    model_config = {"from_attributes": True}
-
-
-# ─── Schemas for StudyYear ─────────────────────────────────────────────
-class StudyYearBase(BaseModel):
-    name: str
     university_id: int
+    model_config = {"from_attributes": True}
 
-class StudyYearCreate(StudyYearBase):
+# --- Department ---
+class DepartmentBase(BaseModel):
+    name: str
+    faculty_id: int
+    head_id: Optional[int] = None
+
+class DepartmentCreate(DepartmentBase):
     pass
 
-class StudyYearRead(StudyYearBase):
+class DepartmentRead(DepartmentBase):
     id: int
-    sections: List[SectionRead] = []
-    # Optionally, we can list teachers here
-
     model_config = {"from_attributes": True}
+
+# --- Specialty ---
+class SpecialtyBase(BaseModel):
+    name: str
+    department_id: int
+
+class SpecialtyCreate(SpecialtyBase):
+    pass
+
+class SpecialtyRead(SpecialtyBase):
+    id: int
+    model_config = {"from_attributes": True}
+
+# --- Level ---
+class LevelBase(BaseModel):
+    name: str
+    specialty_id: int
+
+class LevelCreate(LevelBase):
+    pass
+
+class LevelRead(LevelBase):
+    id: int
+    model_config = {"from_attributes": True}
+
+# --- Semester ---
+class SemesterBase(BaseModel):
+    name: str
+    level_id: int
+
+class SemesterCreate(SemesterBase):
+    pass
+
+class SemesterRead(SemesterBase):
+    id: int
+    model_config = {"from_attributes": True}
+
+# --- Module ---
+class ModuleBase(BaseModel):
+    name: str
+    semester_id: int
+
+class ModuleCreate(ModuleBase):
+    pass
+
+class ModuleRead(ModuleBase):
+    id: int
+    model_config = {"from_attributes": True}
+
+# --- Assignment Schemas ---
+class TeacherModuleAssign(BaseModel):
+    teacher_id: int
+    module_id: int
+
+class StudentLevelEnroll(BaseModel):
+    student_id: int
+    level_id: int

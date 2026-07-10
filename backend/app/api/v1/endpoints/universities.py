@@ -118,3 +118,34 @@ def update_my_university(
             )
 
     return update_university(db, university, university_update)
+
+
+@router.get(
+    "/stats",
+    summary="Statistiques du tableau de bord [admin]",
+)
+def get_university_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+):
+    """Retourne des statistiques basiques (enseignants, étudiants, modules)."""
+    univ_id = current_user.university_id
+
+    # 1. Total Enseignants et Étudiants
+    total_teachers = db.query(User).filter(User.university_id == univ_id, User.role == UserRole.TEACHER).count()
+    total_students = db.query(User).filter(User.university_id == univ_id, User.role == UserRole.STUDENT).count()
+
+    # 2. Total Modules Actifs
+    from app.models.academic import Module, Semester, Level, Specialty, Department, Faculty
+    total_modules = (
+        db.query(Module)
+        .join(Semester).join(Level).join(Specialty).join(Department).join(Faculty)
+        .filter(Faculty.university_id == univ_id)
+        .count()
+    )
+
+    return {
+        "teachers": total_teachers,
+        "students": total_students,
+        "modules": total_modules
+    }
