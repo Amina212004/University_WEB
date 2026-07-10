@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { getUsers, createUsersBulk } from '../../api/services';
-import { Plus, Trash2, Mail } from 'lucide-react';
+import { getUsers, createUsersBulk, toggleUserActive, resetUserPassword } from '../../api/services';
+import { Plus, Trash2, Mail, Lock, CheckCircle, XCircle } from 'lucide-react';
 
 export default function TeachersManager() {
   const [teachers, setTeachers] = useState([]);
@@ -42,6 +42,29 @@ export default function TeachersManager() {
     }
   };
 
+  const handleToggleActive = async (id) => {
+    try {
+      await toggleUserActive(id);
+      fetchTeachers();
+    } catch (err) {
+      alert("Erreur lors de l'activation/désactivation");
+    }
+  };
+
+  const handleResetPassword = async (id) => {
+    const newPwd = window.prompt("Entrez le nouveau mot de passe (min 8 caractères) :");
+    if (!newPwd || newPwd.length < 8) {
+      alert("Le mot de passe doit contenir au moins 8 caractères.");
+      return;
+    }
+    try {
+      await resetUserPassword(id, newPwd);
+      alert("Mot de passe réinitialisé avec succès !");
+    } catch (err) {
+      alert("Erreur lors de la réinitialisation");
+    }
+  };
+
   return (
     <div className="flex-1 p-6 md:p-8 overflow-y-auto">
       <div className="flex justify-between items-center mb-8">
@@ -60,11 +83,13 @@ export default function TeachersManager() {
             <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
               <th className="px-6 py-4 font-semibold">Professeur</th>
               <th className="px-6 py-4 font-semibold">Email</th>
+              <th className="px-6 py-4 font-semibold text-center">Statut</th>
+              <th className="px-6 py-4 font-semibold text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 bg-white">
             {teachers.map(t => (
-              <tr key={t.id} className="hover:bg-slate-50/50 transition-colors">
+              <tr key={t.id} className={`hover:bg-slate-50/50 transition-colors ${!t.is_active ? 'opacity-60' : ''}`}>
                 <td className="px-6 py-4">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center font-bold text-sm">
@@ -76,11 +101,42 @@ export default function TeachersManager() {
                 <td className="px-6 py-4 text-slate-500 text-sm">
                   <div className="flex items-center gap-2"><Mail size={14} /> {t.email}</div>
                 </td>
+                <td className="px-6 py-4 text-center">
+                  {t.is_active ? (
+                    <span className="bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1">
+                      <CheckCircle size={12} /> Actif
+                    </span>
+                  ) : (
+                    <span className="bg-rose-100 text-rose-800 px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1">
+                      <XCircle size={12} /> Inactif
+                    </span>
+                  )}
+                </td>
+                <td className="px-6 py-4 flex justify-end gap-2">
+                  <button 
+                    onClick={() => handleResetPassword(t.id)}
+                    className="p-2 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                    title="Réinitialiser mot de passe"
+                  >
+                    <Lock size={18} />
+                  </button>
+                  <button 
+                    onClick={() => handleToggleActive(t.id)}
+                    className={`p-2 rounded-lg transition-colors ${
+                      t.is_active 
+                        ? 'text-slate-400 hover:text-rose-600 hover:bg-rose-50' 
+                        : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50'
+                    }`}
+                    title={t.is_active ? "Désactiver" : "Activer"}
+                  >
+                    {t.is_active ? <XCircle size={18} /> : <CheckCircle size={18} />}
+                  </button>
+                </td>
               </tr>
             ))}
             {teachers.length === 0 && (
               <tr>
-                <td colSpan="2" className="px-6 py-8 text-center text-slate-400">Aucun professeur trouvé.</td>
+                <td colSpan="4" className="px-6 py-8 text-center text-slate-400">Aucun professeur trouvé.</td>
               </tr>
             )}
           </tbody>
