@@ -33,6 +33,7 @@ class User(Base):
     university = relationship("University", back_populates="users")
     enrolled_levels = relationship("Level", secondary="student_enrollments", back_populates="students")
     taught_modules = relationship("Module", secondary="teacher_modules", back_populates="teachers")
+    assigned_groups = relationship("Group", secondary="student_groups", back_populates="students")
 
     @property
     def full_name(self):

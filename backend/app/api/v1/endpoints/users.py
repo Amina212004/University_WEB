@@ -186,6 +186,72 @@ async def create_users_excel(
 
     return {"imported": len(results), "users": results}
 
+@router.post(
+    "/bulk/excel/teachers",
+    status_code=status.HTTP_201_CREATED,
+    summary="Importer des professeurs via Excel [admin]",
+)
+async def create_teachers_excel(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+):
+    """
+    Importe une liste de professeurs depuis un fichier Excel (.xlsx).
+    Colonnes attendues: Prénom, Nom, Email, Mot de passe.
+    """
+    import io
+    import openpyxl
+
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Format non supporté. Veuillez utiliser .xlsx ou .xls")
+
+    contents = await file.read()
+    try:
+        workbook = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
+        sheet = workbook.active
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Erreur de lecture du fichier Excel: {str(e)}")
+
+    results = []
+    
+    for row in sheet.iter_rows(values_only=True):
+        if not row or not row[0]:
+            continue
+            
+        first_name = str(row[0]).strip() if row[0] else ""
+        last_name = str(row[1]).strip() if len(row) > 1 and row[1] else ""
+        email = str(row[2]).strip() if len(row) > 2 and row[2] else ""
+        password = str(row[3]).strip() if len(row) > 3 and row[3] else ""
+        
+        # Ignorer l'en-tête potentiel
+        if first_name.lower() in ["prénom", "prenom"]:
+            continue
+            
+        if not email or not password:
+            continue
+            
+        if get_user_by_email(db, email):
+            continue 
+            
+        user_create = UserCreate(
+            first_name=first_name,
+            last_name=last_name,
+            email=email,
+            role=UserRole.TEACHER,
+            university_id=current_user.university_id,
+            password=password
+        )
+        
+        created_user = create_user(db, user_create)
+        
+        results.append({
+            "first_name": created_user.first_name,
+            "last_name": created_user.last_name,
+            "email": created_user.email,
+        })
+
+    return {"imported": len(results), "users": results}
 
 @router.get(
     "/",
@@ -281,6 +347,28 @@ def toggle_user_active_endpoint(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Accès refusé")
 
     return toggle_user_active(db, user)
+
+@router.delete(
+    "/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Supprimer un utilisateur [admin]",
+)
+def delete_user_endpoint(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+):
+    """L'admin supprime définitivement un utilisateur de son université."""
+    user = get_user_by_id(db, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+
+    if user.university_id != current_user.university_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Accès refusé")
+    
+    from app.crud.user import delete_user
+    delete_user(db, user)
+    return None
 
 class PasswordResetReq(BaseModel):
     new_password: str

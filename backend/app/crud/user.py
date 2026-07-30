@@ -97,3 +97,9 @@ def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
     if not verify_password(password, user.hashed_password):
         return None
     return user
+
+def delete_user(db: Session, user: User) -> bool:
+    """Supprime un utilisateur."""
+    db.delete(user)
+    db.commit()
+    return True

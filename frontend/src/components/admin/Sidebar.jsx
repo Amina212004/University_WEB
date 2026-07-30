@@ -1,16 +1,16 @@
-import React from 'react';
-import { Home, LayoutGrid, GraduationCap, BookOpen, UserCircle, Settings, LogOut } from 'lucide-react';
+import { Home, LayoutGrid, GraduationCap, BookOpen, UserCircle, Settings, LogOut, CalendarDays } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 export default function Sidebar({ activeTab, setActiveTab }) {
   const { user, logout } = useAuth();
 
   const navItems = [
-    { id: 'overview',   icon: <Home size={20} />,         label: 'Tableau de bord' },
-    { id: 'hierarchy',  icon: <LayoutGrid size={20} />,   label: 'Structure Académique' },
-    { id: 'teachers',   icon: <BookOpen size={20} />,     label: 'Enseignants' },
-    { id: 'students',   icon: <GraduationCap size={20} />,label: 'Étudiants' },
-    { id: 'profile',    icon: <UserCircle size={20} />,   label: 'Mon Profil' },
+    { id: 'overview',   icon: <Home size={20} />,          label: 'Tableau de bord' },
+    { id: 'hierarchy',  icon: <LayoutGrid size={20} />,    label: 'Structure Académique' },
+    { id: 'timetable',  icon: <CalendarDays size={20} />,  label: 'Emplois du Temps' },
+    { id: 'teachers',   icon: <BookOpen size={20} />,      label: 'Enseignants' },
+    { id: 'students',   icon: <GraduationCap size={20} />, label: 'Étudiants' },
+    { id: 'profile',    icon: <UserCircle size={20} />,    label: 'Mon Profil' },
   ];
 
   const initials = `${user?.first_name?.[0] || ''}${user?.last_name?.[0] || ''}`.toUpperCase();

@@ -171,3 +171,168 @@ def get_module_teachers(module_id: int, db: Session = Depends(get_db), current_u
 @router.get("/levels/{level_id}/students", response_model=List[UserRead])
 def get_level_students(level_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     return get_students_by_level(db, level_id)
+
+# --- Sections & Groups ---
+from app.crud.academic import create_section, create_group, clear_level_sections, enroll_student_in_group
+from app.schemas.academic import SectionRead, AutoDistributeRequest
+import math
+
+@router.get("/levels/{level_id}/sections")
+def get_level_sections(level_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from app.crud.academic import get_sections_by_level
+    sections = get_sections_by_level(db, level_id)
+    # We want to return sections with their groups and student count
+    res = []
+    for s in sections:
+        groups_res = []
+        for g in s.groups:
+            groups_res.append({
+                "id": g.id,
+                "name": g.name,
+                "students_count": len(g.students)
+            })
+        res.append({
+            "id": s.id,
+            "name": s.name,
+            "groups": groups_res
+        })
+    return res
+
+@router.post("/levels/{level_id}/auto-distribute")
+def auto_distribute_students(
+    level_id: int,
+    req: AutoDistributeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    students = get_students_by_level(db, level_id)
+    total_students = len(students)
+    if total_students == 0:
+        raise HTTPException(status_code=400, detail="Aucun étudiant inscrit à ce niveau.")
+    
+    # 1. Clear existing sections/groups for this level
+    clear_level_sections(db, level_id)
+    
+    # 2. Calculate sections
+    num_sections = math.ceil(total_students / req.section_size)
+    if num_sections == 0: num_sections = 1
+    
+    student_idx = 0
+    
+    for s_idx in range(num_sections):
+        section_name = f"Section {chr(65 + s_idx)}" # A, B, C...
+        section = create_section(db, section_name, level_id)
+        
+        # Determine how many students go into this section
+        # Simple distribution: equally divide them
+        # E.g. 200 students, 2 sections -> ~100 each
+        start_idx = math.floor(s_idx * total_students / num_sections)
+        end_idx = math.floor((s_idx + 1) * total_students / num_sections)
+        section_students = students[start_idx:end_idx]
+        
+        # Calculate groups for this section
+        num_groups = math.ceil(len(section_students) / req.group_size)
+        if num_groups == 0: num_groups = 1
+        
+        for g_idx in range(num_groups):
+            group_name = f"Groupe {g_idx + 1}"
+            group = create_group(db, group_name, section.id)
+            
+            # Distribute into groups
+            g_start = math.floor(g_idx * len(section_students) / num_groups)
+            g_end = math.floor((g_idx + 1) * len(section_students) / num_groups)
+            group_students = section_students[g_start:g_end]
+            
+            for st in group_students:
+                enroll_student_in_group(db, st.id, group.id)
+                
+    return {"message": f"Distribution automatique terminée pour {total_students} étudiants."}
+
+# --- TimeSlots ---
+from app.crud.academic import create_timeslot, get_section_timetable, delete_timeslot
+from app.schemas.academic import TimeSlotCreate, TimeSlotRead
+
+@router.get("/sections/{section_id}/timetable", response_model=List[TimeSlotRead])
+def get_timetable(
+    section_id: int, 
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_user)
+):
+    return get_section_timetable(db, section_id)
+
+@router.post("/timeslots", response_model=TimeSlotRead)
+def add_timeslot(
+    timeslot_in: TimeSlotCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    return create_timeslot(db, timeslot_in)
+
+@router.delete("/timeslots/{timeslot_id}")
+def remove_timeslot(
+    timeslot_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    success = delete_timeslot(db, timeslot_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Séance introuvable")
+    return {"message": "Séance supprimée"}
+
+# --- Exams ---
+from app.crud.academic import create_exam, get_exams_by_level, delete_exam
+from app.schemas.academic import ExamScheduleCreate, ExamScheduleRead
+
+@router.get("/levels/{level_id}/exams", response_model=List[ExamScheduleRead])
+def list_exams(
+    level_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    return get_exams_by_level(db, level_id)
+
+@router.post("/exams", response_model=ExamScheduleRead, status_code=status.HTTP_201_CREATED)
+def add_exam(
+    exam_in: ExamScheduleCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    return create_exam(db, exam_in)
+
+@router.delete("/exams/{exam_id}")
+def remove_exam(
+    exam_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    success = delete_exam(db, exam_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Examen introuvable")
+    return {"message": "Examen supprimé"}
+
+# --- Teacher Module Assignment ---
+from app.crud.academic import assign_teacher_to_module, remove_teacher_from_module
+
+@router.post("/modules/{module_id}/teachers/{teacher_id}")
+def add_teacher_to_module(
+    module_id: int,
+    teacher_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    success = assign_teacher_to_module(db, module_id, teacher_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Module ou professeur introuvable")
+    return {"message": "Professeur affecté au module avec succès"}
+
+@router.delete("/modules/{module_id}/teachers/{teacher_id}")
+def remove_teacher(
+    module_id: int,
+    teacher_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    success = remove_teacher_from_module(db, module_id, teacher_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Module ou professeur introuvable")
+    return {"message": "Professeur retiré du module"}

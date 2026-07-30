@@ -1,32 +1,59 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Users, BookOpen, GraduationCap, Calendar, 
-  TrendingUp, Activity, Layers, ChevronRight 
+  TrendingUp, Activity, Plus 
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell, ResponsiveContainer
 } from 'recharts';
-import { getAdminStats, getMyUniversity, getAcademicTree } from '../../api/services';
+import { getStudyYears, getUsers, getMyUniversity } from '../../api/services';
 
 export default function Overview({ user }) {
   const [stats, setStats] = useState({
     students: 0,
     teachers: 0,
-    modules: 0
+    years: 0
   });
   
+  const [recentUsers, setRecentUsers] = useState([]);
+  const [departments, setDepartments] = useState({});
   const [university, setUniversity] = useState(null);
-  const [academicTree, setAcademicTree] = useState([]);
 
   useEffect(() => {
+    // Fetch some basic stats to display
     const fetchData = async () => {
       try {
+        const [studentsRes, teachersRes, yearsRes] = await Promise.all([
+          getUsers('student'),
+          getUsers('teacher'),
+          getStudyYears()
+        ]);
+        
         if (user?.university_id) {
           getMyUniversity().then(res => setUniversity(res.data)).catch(console.error);
-          getAcademicTree().then(res => setAcademicTree(res.data)).catch(console.error);
         }
-        
-        getAdminStats().then(res => setStats(res.data)).catch(console.error);
+
+        setStats({
+          students: studentsRes.data.length,
+          teachers: teachersRes.data.length,
+          years: yearsRes.data.length
+        });
+
+        // Mix recent users
+        const recent = [...studentsRes.data, ...teachersRes.data]
+          .sort((a, b) => b.id - a.id)
+          .slice(0, 4);
+        setRecentUsers(recent);
+
+        // Group study years by name (acting as Department)
+        const grouped = {};
+        yearsRes.data.forEach(year => {
+          if (!grouped[year.name]) {
+            grouped[year.name] = [];
+          }
+          grouped[year.name].push(year.level);
+        });
+        setDepartments(grouped);
 
       } catch (err) {
         console.error(err);
@@ -39,6 +66,8 @@ export default function Overview({ user }) {
     { name: 'Étudiants', value: stats.students || 1, color: '#00e5ff' },
     { name: 'Professeurs', value: stats.teachers || 1, color: '#e0e7ff' }
   ];
+
+  const colors = ['bg-brand-800', 'bg-teal-600', 'bg-emerald-600', 'bg-indigo-600'];
 
   return (
     <div className="flex-1 p-6 md:p-8 overflow-y-auto">
@@ -57,8 +86,8 @@ export default function Overview({ user }) {
 
       <div className="flex flex-col xl:flex-row gap-8">
         
-        {/* Left Column (Cards & Hierarchy) */}
-        <div className="w-full xl:w-96 flex flex-col gap-6">
+        {/* Left Column (Cards) */}
+        <div className="w-full xl:w-80 flex flex-col gap-4">
           {/* Main University Card (Purple Zone) */}
           <div className="h-44 rounded-2xl bg-brand-900 p-5 text-white flex flex-col justify-between relative overflow-hidden shadow-xl shadow-brand-900/20">
             <div className="absolute top-0 right-0 w-32 h-32 bg-teal-400 rounded-full blur-3xl opacity-20 -mr-10 -mt-10"></div>
@@ -68,71 +97,89 @@ export default function Overview({ user }) {
               <div className="font-bold text-xl">{university?.name || "Université"}</div>
             </div>
             <div className="relative z-10">
-              <div className="font-mono text-lg tracking-widest mb-2 shadow-sm">{university?.subdomain || "Domaine"}</div>
+              <div className="font-mono text-lg tracking-widest mb-2 shadow-sm">{university?.domain || "Domaine"}</div>
               <div className="flex justify-between text-xs text-white/70">
-                <span>{stats.students + stats.teachers} membres</span>
+                <span>{stats.students} inscrits totaux</span>
                 <span>Actif</span>
               </div>
             </div>
           </div>
 
-          {/* Academic Tree */}
-          <div className="bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 p-5">
-            <h3 className="font-bold text-lg text-slate-800 mb-4 flex items-center gap-2">
-              <Layers size={20} className="text-brand-600" /> Structure existante
-            </h3>
-            
-            <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
-              {academicTree.map(fac => (
-                <div key={fac.id} className="border border-slate-100 rounded-xl overflow-hidden">
-                  <div className="bg-slate-50 p-3 font-semibold text-slate-800 flex items-center justify-between border-b border-slate-100">
-                    {fac.name}
-                  </div>
-                  <div className="p-3 space-y-3 bg-white">
-                    {fac.departments.length === 0 && <span className="text-sm text-slate-400 italic">Aucun département</span>}
-                    {fac.departments.map(dep => (
-                      <div key={dep.id} className="pl-2 border-l-2 border-brand-200">
-                        <div className="font-medium text-slate-700 text-sm">{dep.name}</div>
-                        <div className="mt-2 pl-3 space-y-2">
-                          {dep.specialties.length === 0 && <span className="text-xs text-slate-400 italic">Aucune spécialité</span>}
-                          {dep.specialties.map(spec => (
-                            <div key={spec.id} className="text-xs">
-                              <span className="text-slate-500 font-semibold">{spec.name} :</span>
-                              <div className="flex flex-wrap gap-1 mt-1">
-                                {spec.levels.length === 0 && <span className="text-slate-400 italic">Aucun niveau</span>}
-                                {spec.levels.map(level => (
-                                  <span key={level.id} className="bg-brand-50 text-brand-700 border border-brand-200 px-2 py-0.5 rounded-full">
-                                    {level.name}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              {academicTree.length === 0 && (
-                <div className="text-center text-slate-400 text-sm py-4 italic">
-                  Aucune structure définie.
-                </div>
-              )}
+          {/* Render Departments dynamically under the purple card */}
+          {Object.entries(departments).map(([deptName, levels], index) => (
+            <div key={deptName} className={`min-h-32 rounded-2xl ${colors[index % colors.length] || 'bg-brand-800'} p-5 text-white flex flex-col justify-between relative overflow-hidden shadow-xl shadow-brand-900/10`}>
+              <div className="absolute top-0 left-0 w-full h-full bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMCAwTDIwMCAyMDAiIHN0cm9rZT0icmdiYSgyNTUsMjU1LDI1NSwwLjEpIiBzdHJva2Utd2lkdGg9IjIiLz48L3N2Zz4=')] opacity-50"></div>
+              
+              <div className="relative z-10 flex justify-between items-start mb-4">
+                <div className="font-bold">{deptName}</div>
+              </div>
+              <div className="relative z-10 flex flex-wrap gap-2">
+                {levels.map((lvl, i) => (
+                   <span key={i} className="px-3 py-1 bg-white/20 rounded-lg text-sm font-bold border border-white/10 backdrop-blur-sm">
+                     {lvl}
+                   </span>
+                ))}
+              </div>
             </div>
-          </div>
+          ))}
+
+          <button className="h-32 border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center text-slate-400 hover:bg-slate-50 transition-colors">
+            <span className="text-2xl mb-1">+</span>
+            <span className="text-sm font-semibold">Ajouter une année</span>
+          </button>
         </div>
 
         {/* Right Column (Transactions & Summaries) */}
         <div className="flex-1 flex flex-col gap-8">
+          
+          {/* Transactions Header */}
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-lg text-slate-800">Dernières Activités</h3>
+            </div>
+            
+            <div className="flex items-center gap-6 mb-6">
+              <div className="text-sm font-semibold text-slate-400">Total Membres</div>
+              <div className="flex items-center gap-2 text-2xl font-black text-slate-800">
+                <div className="w-6 h-6 rounded-full bg-brand-900 text-white flex items-center justify-center text-sm shadow-md">U</div>
+                {stats.students + stats.teachers} <span className="text-slate-400 text-lg">Actifs</span>
+              </div>
+            </div>
+
+            {/* Transactions List */}
+            <div className="bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 p-2">
+              {recentUsers.map(u => (
+                <div key={u.id} className="flex items-center justify-between p-4 hover:bg-slate-50 rounded-xl transition-colors cursor-pointer group">
+                  <div className="flex items-center gap-4">
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-sm ${u.role === 'teacher' ? 'bg-brand-900 text-white' : 'bg-teal-400 text-white'}`}>
+                      {u.role === 'teacher' ? <BookOpen size={18} /> : <GraduationCap size={18} />}
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-800">Nouvel {u.role === 'teacher' ? 'Enseignant' : 'Étudiant'} ajouté</div>
+                      <div className="text-xs text-slate-400 font-medium">{u.first_name} {u.last_name}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-6">
+                    <div className={`font-bold text-slate-500 capitalize`}>
+                      {u.role}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {recentUsers.length === 0 && (
+                 <div className="p-4 text-slate-400 text-center">Aucune activité récente.</div>
+              )}
+            </div>
+          </div>
+
           {/* Quick Summary Section */}
           <div>
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-lg text-slate-800">Statistiques de l'Université</h3>
+              <h3 className="font-bold text-lg text-slate-800">Statistiques Académiques</h3>
             </div>
             
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Étudiants */}
+              {/* Income */}
               <div className="bg-white rounded-2xl p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 relative overflow-hidden h-40 flex flex-col justify-between">
                 <div className="flex justify-between items-start z-10 relative">
                   <div>
@@ -148,7 +195,7 @@ export default function Overview({ user }) {
                 </div>
               </div>
 
-              {/* Professeurs */}
+              {/* Expenses */}
               <div className="bg-white rounded-2xl p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 relative overflow-hidden h-40 flex flex-col justify-between">
                 <div className="flex justify-between items-start z-10 relative">
                   <div>
@@ -164,12 +211,12 @@ export default function Overview({ user }) {
                 </div>
               </div>
 
-              {/* Modules */}
+              {/* Subscriptions */}
               <div className="bg-white rounded-2xl p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 relative overflow-hidden h-40 flex flex-col justify-between">
                 <div className="flex justify-between items-start z-10 relative">
                   <div>
-                    <div className="text-sm font-semibold text-slate-500 mb-1">Modules Actifs</div>
-                    <div className="text-2xl font-black text-slate-800">{stats.modules}</div>
+                    <div className="text-sm font-semibold text-slate-500 mb-1">Filières</div>
+                    <div className="text-2xl font-black text-slate-800">{stats.years}</div>
                   </div>
                   <Activity size={16} className="text-brand-500" />
                 </div>
@@ -198,6 +245,7 @@ export default function Overview({ user }) {
                   </ResponsiveContainer>
                 </div>
               </div>
+
             </div>
           </div>
         </div>

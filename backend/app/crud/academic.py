@@ -97,10 +97,44 @@ def delete_module(db: Session, module_id: int) -> bool:
         return True
     return False
 
-def delete_all_modules(db: Session, semester_id: int) -> int:
-    deleted_count = db.query(Module).filter(Module.semester_id == semester_id).delete()
+def delete_all_modules(db: Session, semester_id: int):
+    modules = db.query(Module).filter(Module.semester_id == semester_id).all()
+    for m in modules:
+        db.delete(m)
     db.commit()
-    return deleted_count
+
+# --- Section & Group ---
+from app.models.academic import Section, Group, student_groups
+
+def create_section(db: Session, name: str, level_id: int) -> Section:
+    db_section = Section(name=name, level_id=level_id)
+    db.add(db_section)
+    db.commit()
+    db.refresh(db_section)
+    return db_section
+
+def create_group(db: Session, name: str, section_id: int) -> Group:
+    db_group = Group(name=name, section_id=section_id)
+    db.add(db_group)
+    db.commit()
+    db.refresh(db_group)
+    return db_group
+
+def get_sections_by_level(db: Session, level_id: int):
+    return db.query(Section).filter(Section.level_id == level_id).all()
+
+def enroll_student_in_group(db: Session, student_id: int, group_id: int):
+    group = db.query(Group).filter(Group.id == group_id).first()
+    student = db.query(User).filter(User.id == student_id).first()
+    if group and student and student not in group.students:
+        group.students.append(student)
+        db.commit()
+
+def clear_level_sections(db: Session, level_id: int):
+    sections = db.query(Section).filter(Section.level_id == level_id).all()
+    for s in sections:
+        db.delete(s)
+    db.commit()
 
 # --- Assignments ---
 from app.models.user import User
@@ -136,3 +170,100 @@ def get_students_by_level(db: Session, level_id: int) -> List[User]:
     if not level:
         return []
     return level.students
+
+# --- TimeSlot CRUD ---
+from app.models.academic import TimeSlot
+from app.schemas.academic import TimeSlotCreate
+
+def create_timeslot(db: Session, timeslot_in: TimeSlotCreate) -> TimeSlot:
+    db_obj = TimeSlot(**timeslot_in.model_dump())
+    db.add(db_obj)
+    db.commit()
+    db.refresh(db_obj)
+    return db_obj
+
+def get_section_timetable(db: Session, section_id: int) -> List[TimeSlot]:
+    """
+    Retourne les emplois du temps pour une section.
+    Cela inclut:
+    - Les séances (cours) affectées à la section (section_id == section_id)
+    - Les séances (td/tp) affectées aux groupes de cette section
+    """
+    section = db.query(Section).filter(Section.id == section_id).first()
+    if not section:
+        return []
+        
+    group_ids = [g.id for g in section.groups]
+    
+    from sqlalchemy import or_
+    timeslots = db.query(TimeSlot).filter(
+        or_(
+            TimeSlot.section_id == section_id,
+            TimeSlot.group_id.in_(group_ids) if group_ids else False
+        )
+    ).all()
+    
+    return timeslots
+
+def delete_timeslot(db: Session, timeslot_id: int) -> bool:
+    obj = db.query(TimeSlot).filter(TimeSlot.id == timeslot_id).first()
+    if obj:
+        db.delete(obj)
+        db.commit()
+        return True
+    return False
+
+# --- ExamSchedule CRUD ---
+from app.models.academic import ExamSchedule
+from app.schemas.academic import ExamScheduleCreate
+
+def create_exam(db: Session, exam_in: ExamScheduleCreate) -> ExamSchedule:
+    db_obj = ExamSchedule(**exam_in.model_dump())
+    db.add(db_obj)
+    db.commit()
+    db.refresh(db_obj)
+    return db_obj
+
+def get_exams_by_level(db: Session, level_id: int) -> List[ExamSchedule]:
+    from sqlalchemy import or_
+    # Get sections of this level to also fetch section-level exams
+    sections = db.query(Section).filter(Section.level_id == level_id).all()
+    section_ids = [s.id for s in sections]
+    exams = db.query(ExamSchedule).filter(
+        or_(
+            ExamSchedule.level_id == level_id,
+            ExamSchedule.section_id.in_(section_ids) if section_ids else False
+        )
+    ).order_by(ExamSchedule.exam_date, ExamSchedule.start_time).all()
+    return exams
+
+def delete_exam(db: Session, exam_id: int) -> bool:
+    obj = db.query(ExamSchedule).filter(ExamSchedule.id == exam_id).first()
+    if obj:
+        db.delete(obj)
+        db.commit()
+        return True
+    return False
+
+# --- Teacher Module Assignment ---
+from app.models.user import User
+
+def assign_teacher_to_module(db: Session, module_id: int, teacher_id: int) -> bool:
+    module = db.query(Module).filter(Module.id == module_id).first()
+    teacher = db.query(User).filter(User.id == teacher_id).first()
+    if not module or not teacher:
+        return False
+    if teacher not in module.teachers:
+        module.teachers.append(teacher)
+        db.commit()
+    return True
+
+def remove_teacher_from_module(db: Session, module_id: int, teacher_id: int) -> bool:
+    module = db.query(Module).filter(Module.id == module_id).first()
+    teacher = db.query(User).filter(User.id == teacher_id).first()
+    if not module or not teacher:
+        return False
+    if teacher in module.teachers:
+        module.teachers.remove(teacher)
+        db.commit()
+    return True

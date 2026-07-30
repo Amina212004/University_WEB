@@ -6,6 +6,7 @@ import StudentsManager from '../components/admin/StudentsManager';
 import TeachersManager from '../components/admin/TeachersManager';
 import HierarchyManager from '../components/admin/HierarchyManager';
 import ProfileManager from '../components/admin/ProfileManager';
+import TimetableManager from '../components/admin/TimetableManager';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -22,6 +23,7 @@ export default function Dashboard() {
         {activeTab === 'hierarchy'  && <HierarchyManager />}
         {activeTab === 'students'   && <StudentsManager />}
         {activeTab === 'teachers'   && <TeachersManager />}
+        {activeTab === 'timetable'  && <TimetableManager />}
         {activeTab === 'profile'    && <ProfileManager />}
         {activeTab === 'settings'   && (
           <div className="flex-1 p-8 text-slate-500">Parametres (En construction)</div>
