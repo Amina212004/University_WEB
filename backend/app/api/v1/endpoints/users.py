@@ -263,7 +263,7 @@ def list_users(
     limit: int = Query(100, ge=1, le=500),
     role: Optional[UserRole] = Query(None, description="Filtrer par rôle"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin),
+    current_user: User = Depends(get_current_user),
 ):
     """Liste tous les utilisateurs de l'université de l'admin connecté."""
     return get_users_by_university(

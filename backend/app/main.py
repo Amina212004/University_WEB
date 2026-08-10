@@ -1,7 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.api.v1.router import api_router
+import os
+
+# Création du dossier uploads s'il n'existe pas
+os.makedirs("uploads", exist_ok=True)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -34,6 +39,7 @@ app.add_middleware(
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
 app.include_router(api_router, prefix="/api/v1")
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 
 @app.get("/", tags=["Health"])

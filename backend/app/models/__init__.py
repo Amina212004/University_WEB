@@ -4,3 +4,4 @@ from app.models.university import University  # noqa: F401
 from app.models.user import User              # noqa: F401
 from app.models.academic import Faculty, Department, Specialty, Level, Semester, Module # noqa: F401
 from app.models.communication import Announcement, Message # noqa: F401
+from app.models.content import CourseMaterial, ExamDraft # noqa: F401

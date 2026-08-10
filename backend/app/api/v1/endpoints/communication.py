@@ -56,3 +56,65 @@ def read_chat_history(
     current_user: User = Depends(get_current_user)
 ):
     return get_chat_history(db, user_a=current_user.id, user_b=other_user_id, limit=limit)
+
+@router.get("/conversations", response_model=List[dict])
+def get_conversations_list(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    from app.models.communication import Message
+    from app.models.user import UserRole
+    from sqlalchemy import or_
+    
+    # Get all messages where current user is sender or receiver
+    messages = db.query(Message).filter(
+        or_(Message.sender_id == current_user.id, Message.receiver_id == current_user.id)
+    ).order_by(Message.created_at.desc()).all()
+    
+    # Extract unique user IDs
+    user_ids = set()
+    for msg in messages:
+        if msg.sender_id != current_user.id:
+            user_ids.add(msg.sender_id)
+        if msg.receiver_id != current_user.id:
+            user_ids.add(msg.receiver_id)
+            
+    # Also add admins if current_user is teacher, so they can start a chat
+    if current_user.role == UserRole.TEACHER:
+        admins = db.query(User).filter(User.university_id == current_user.university_id, User.role == UserRole.ADMIN).all()
+        for admin in admins:
+            user_ids.add(admin.id)
+            
+    if not user_ids:
+        return []
+        
+    # Fetch those users
+    users = db.query(User).filter(User.id.in_(user_ids)).all()
+    
+    # Get last message for each user
+    user_last_msg = {}
+    for msg in reversed(messages): # reversed to keep the latest one (since order is desc)
+        other_user = msg.sender_id if msg.sender_id != current_user.id else msg.receiver_id
+        if other_user not in user_last_msg or msg.created_at > user_last_msg[other_user]['created_at']:
+            user_last_msg[other_user] = {
+                "content": msg.content,
+                "created_at": msg.created_at,
+                "sender_id": msg.sender_id
+            }
+
+    # Format response
+    result = []
+    for u in users:
+        last_msg = user_last_msg.get(u.id)
+        result.append({
+            "id": u.id,
+            "first_name": u.first_name,
+            "last_name": u.last_name,
+            "role": u.role.value if hasattr(u.role, 'value') else u.role,
+            "avatar_url": u.avatar_url,
+            "last_message": last_msg["content"] if last_msg else None,
+            "last_message_date": last_msg["created_at"].isoformat() if last_msg else None,
+            "last_message_sender": last_msg["sender_id"] if last_msg else None
+        })
+        
+    return result
