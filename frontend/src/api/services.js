@@ -114,8 +114,7 @@ export const getModules = (semester_id) => API.get(`/academic/semesters/${semest
 export const createModule = (data) => API.post('/academic/modules', data);
 
 // Assignments
-export const assignTeacherToModule = (teacher_id, module_id) => 
-  API.post('/academic/teacher-modules', { teacher_id, module_id });
+
 
 export const enrollStudentToLevel = (student_id, level_id) => 
   API.post('/academic/student-enrollments', { student_id, level_id });
@@ -159,3 +158,27 @@ export const getExamsByLevel = (level_id) => API.get(`/academic/levels/${level_i
 export const addExam = (data) => API.post(`/academic/exams`, data);
 export const deleteExam = (id) => API.delete(`/academic/exams/${id}`);
 
+// --- Communication / Announcements ---
+export const getAnnouncements = (skip = 0, limit = 20) => API.get(`/communication/announcements?skip=${skip}&limit=${limit}`);
+export const addAnnouncement = (data) => API.post(`/communication/announcements`, data);
+export const deleteAnnouncement = (id) => API.delete(`/communication/announcements/${id}`);
+export const sendMessage = (data) => API.post(`/communication/messages`, data);
+export const getChatHistory = (otherUserId) => API.get(`/communication/messages/${otherUserId}`);
+export const getConversations = () => API.get(`/communication/conversations`);
+// --- Academic Teacher Assignment ---
+export const assignTeacherToModule = (teacher_id, module_id) => API.post(`/academic/modules/${module_id}/teachers/${teacher_id}`);
+export const removeTeacherFromModule = (module_id, teacher_id) => API.delete(`/academic/modules/${module_id}/teachers/${teacher_id}`);
+
+// --- Materials (Cours, TD, TP) ---
+export const uploadMaterial = (formData) => API.post('/materials/upload', formData, {
+  headers: { 'Content-Type': 'multipart/form-data' }
+});
+export const getModuleMaterials = (module_id) => API.get(`/materials/module/${module_id}`);
+export const deleteMaterial = (material_id) => API.delete(`/materials/${material_id}`);
+
+// --- Teacher Space (Espace Enseignant) ---
+export const getTeacherModules    = () => API.get('/teacher/me/modules');
+export const getTeacherTimetable  = () => API.get('/teacher/me/timetable');
+export const getTeacherStudents   = () => API.get('/teacher/me/students');
+export const getTeacherExams      = () => API.get('/teacher/me/exams');
+export const getTeacherStats      = () => API.get('/teacher/me/stats');

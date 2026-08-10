@@ -6,9 +6,11 @@ import {
   getUsers, getExamsByLevel, addExam, deleteExam
 } from '../../api/services';
 import {
-  Calendar, Plus, Trash2, Clock, Printer, ChevronDown,
-  AlertTriangle, X, BookOpen, ClipboardList
+  Calendar, Plus, Trash2, Clock, ChevronDown,
+  AlertTriangle, X, BookOpen, ClipboardList, FileDown
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import { useAuth } from '../../context/AuthContext';
 
 const DAYS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi'];
 const DAYS_SHORT = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu'];
@@ -32,7 +34,7 @@ function timeToMinutes(t) {
   return (h - 8) * 60 + m;
 }
 
-function SessionCard({ slot, onDelete, groups }) {
+function SessionCard({ slot, onDelete, groups, userRole }) {
   const style = SESSION_STYLES[slot.session_type] || SESSION_STYLES.cours;
   const group = slot.group_id ? groups.find(g => g.id === slot.group_id) : null;
   const top = (timeToMinutes(slot.start_time?.slice(0,5)) / 30) * 64;
@@ -53,10 +55,12 @@ function SessionCard({ slot, onDelete, groups }) {
           {slot.teacher && <p className="text-[10px] text-white/80 truncate">{slot.teacher.first_name} {slot.teacher.last_name}</p>}
           <div className="flex items-center justify-between mt-0.5">
             <p className="text-[10px] text-white/70">{slot.start_time?.slice(0,5)} – {slot.end_time?.slice(0,5)}{slot.room && ` · ${slot.room}`}</p>
-            <button onClick={() => onDelete(slot.id)}
-              className="opacity-0 group-hover:opacity-100 p-1 rounded-lg bg-white/20 hover:bg-white/40 text-white transition-all">
-              <Trash2 size={11} />
-            </button>
+            {userRole === 'admin' && (
+              <button onClick={() => onDelete(slot.id)}
+                className="opacity-0 group-hover:opacity-100 p-1 rounded-lg bg-white/20 hover:bg-white/40 text-white transition-all">
+                <Trash2 size={11} />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -99,7 +103,7 @@ function FilterBar({ faculties, departments, specialties, levels, semesters, sec
 }
 
 // ─── ExamCard ──────────────────────────────────────────────────────────────────
-function ExamCard({ exam, onDelete, sections, levels }) {
+function ExamCard({ exam, onDelete, sections, levels, userRole }) {
   const d = new Date(exam.exam_date);
   const day = d.getDate();
   const month = MONTHS_FR[d.getMonth()];
@@ -128,16 +132,19 @@ function ExamCard({ exam, onDelete, sections, levels }) {
           <span className="text-xs text-slate-400">{day} {month} {year}</span>
         </div>
       </div>
-      <button onClick={() => onDelete(exam.id)}
-        className="opacity-0 group-hover:opacity-100 p-2.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all">
-        <Trash2 size={18} />
-      </button>
+      {(userRole === 'admin' || userRole === 'teacher') && (
+        <button onClick={() => onDelete(exam.id)}
+          className="opacity-0 group-hover:opacity-100 p-2.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all">
+          <Trash2 size={18} />
+        </button>
+      )}
     </div>
   );
 }
 
 // ─── Main Component ─────────────────────────────────────────────────────────────
 export default function TimetableManager() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('schedule'); // 'schedule' | 'exams'
 
   // Shared navigation state
@@ -234,6 +241,217 @@ export default function TimetableManager() {
     if (selLevel) { const r = await getExamsByLevel(selLevel); setExams(r.data); }
   };
 
+  // ── PDF Export: Weekly Schedule ──
+  const exportSchedulePDF = () => {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const margin = 14;
+
+    // Header
+    doc.setFillColor(37, 99, 235);
+    doc.rect(0, 0, pageW, 18, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(13);
+    doc.setFont('helvetica', 'bold');
+    doc.text('EMPLOI DU TEMPS', margin, 11);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    const subtitle = `${selSectionName}  ·  ${selSemesterName}`;
+    doc.text(subtitle, pageW - margin - doc.getTextWidth(subtitle), 11);
+    doc.setTextColor(0, 0, 0);
+
+    // Build unique time ranges from slots
+    const allTimes = [...new Set(timeslots.map(s => `${s.start_time?.slice(0,5)}-${s.end_time?.slice(0,5)}`))]
+      .sort();
+    if (allTimes.length === 0) {
+      doc.setFontSize(11);
+      doc.text('Aucune séance enregistrée.', margin, 40);
+      doc.save(`emploi_du_temps_${selSectionName}.pdf`);
+      return;
+    }
+
+    const colLabels = ['Horaire', ...DAYS];
+    const colCount = colLabels.length;
+    const tableW = pageW - margin * 2;
+    const timeColW = 38;
+    const dayColW = (tableW - timeColW) / 5;
+    const rowH = 14;
+    const headerY = 24;
+
+    // Table header
+    doc.setFillColor(241, 245, 249);
+    doc.rect(margin, headerY, tableW, rowH, 'F');
+    doc.setFontSize(8.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(71, 85, 105);
+    doc.text('Horaire', margin + 3, headerY + 9);
+    DAYS.forEach((d, i) => {
+      const x = margin + timeColW + i * dayColW;
+      doc.text(d, x + dayColW / 2 - doc.getTextWidth(d) / 2, headerY + 9);
+    });
+
+    // Draw rows
+    let y = headerY + rowH;
+    const SESSION_COLORS_PDF = { cours: [219, 234, 254], td: [237, 233, 254], tp: [254, 243, 199] };
+    const SESSION_TEXT_PDF   = { cours: [30, 64, 175],   td: [91, 33, 182],   tp: [146, 64, 14] };
+
+    allTimes.forEach((timeRange, rowIdx) => {
+      const [startT, endT] = timeRange.split('-');
+      const rowColor = rowIdx % 2 === 0 ? [255, 255, 255] : [248, 250, 252];
+      doc.setFillColor(...rowColor);
+      doc.rect(margin, y, tableW, rowH, 'F');
+
+      // Borders
+      doc.setDrawColor(226, 232, 240);
+      doc.rect(margin, y, tableW, rowH, 'S');
+
+      // Time label
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(51, 65, 85);
+      doc.text(`${startT} – ${endT}`, margin + 3, y + 9);
+
+      // Fill day cells
+      DAYS.forEach((_, dayIdx) => {
+        const cell = timeslots.find(s =>
+          s.day_of_week === dayIdx &&
+          s.start_time?.slice(0,5) === startT &&
+          s.end_time?.slice(0,5) === endT
+        );
+        if (cell) {
+          const cellX = margin + timeColW + dayIdx * dayColW;
+          const type = cell.session_type || 'cours';
+          doc.setFillColor(...(SESSION_COLORS_PDF[type] || [219,234,254]));
+          doc.rect(cellX + 1, y + 1, dayColW - 2, rowH - 2, 'F');
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7.5);
+          doc.setTextColor(...(SESSION_TEXT_PDF[type] || [30,64,175]));
+          const moduleName = cell.module?.name || `Module #${cell.module_id}`;
+          const teacherName = cell.teacher ? `${cell.teacher.first_name} ${cell.teacher.last_name}` : '';
+          const roomTxt = cell.room || '';
+          const typeLabel = type.toUpperCase();
+
+          // Truncate long text
+          const maxW = dayColW - 4;
+          const truncate = (str, maxChars) => str.length > maxChars ? str.slice(0, maxChars - 1) + '…' : str;
+
+          doc.text(`[${typeLabel}] ${truncate(moduleName, 20)}`, cellX + 2, y + 5);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.5);
+          doc.setTextColor(100, 116, 139);
+          if (teacherName) doc.text(truncate(teacherName, 22), cellX + 2, y + 9);
+          if (roomTxt) doc.text(roomTxt, cellX + 2, y + 12.5);
+        }
+      });
+
+      y += rowH;
+      if (y > pageH - 20) { doc.addPage(); y = 20; }
+    });
+
+    // Footer
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(7);
+    doc.setTextColor(148, 163, 184);
+    doc.text(`Généré le ${new Date().toLocaleDateString('fr-FR')}`, margin, pageH - 6);
+
+    doc.save(`emploi_du_temps_${selSectionName}_${selSemesterName}.pdf`);
+  };
+
+  // ── PDF Export: Exam Calendar ──
+  const exportExamsPDF = () => {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const margin = 14;
+
+    // Header
+    doc.setFillColor(239, 68, 68);
+    doc.rect(0, 0, pageW, 18, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(13);
+    doc.setFont('helvetica', 'bold');
+    doc.text('CALENDRIER DES EXAMENS', margin, 11);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Niveau : ${selLevelName}`, pageW - margin - doc.getTextWidth(`Niveau : ${selLevelName}`), 11);
+    doc.setTextColor(0, 0, 0);
+
+    if (exams.length === 0) {
+      doc.setFontSize(11);
+      doc.text('Aucun examen programmé.', margin, 40);
+      doc.save(`examens_${selLevelName}.pdf`);
+      return;
+    }
+
+    // Column widths
+    const colWidths = [28, 20, 60, 32, 28, 18];
+    const colHeaders = ['Date', 'Jour', 'Matière', 'Horaire', 'Salle', 'Section/Niveau'];
+    const tableW = pageW - margin * 2;
+    const rowH = 10;
+    let y = 26;
+
+    // Table header
+    doc.setFillColor(254, 242, 242);
+    doc.rect(margin, y, tableW, rowH, 'F');
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(153, 27, 27);
+    let cx = margin;
+    colHeaders.forEach((h, i) => {
+      doc.text(h, cx + 2, y + 7);
+      cx += colWidths[i];
+    });
+    doc.setDrawColor(252, 165, 165);
+    doc.rect(margin, y, tableW, rowH, 'S');
+    y += rowH;
+
+    // Rows
+    exams.forEach((ex, idx) => {
+      const d = new Date(ex.exam_date);
+      const dateStr = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      const dayName = DAYS[d.getDay() <= 4 ? d.getDay() : 0] || DAYS[0];
+      const moduleName = ex.module?.name || `Module #${ex.module_id}`;
+      const horaire = `${ex.start_time?.slice(0,5)} – ${ex.end_time?.slice(0,5)}`;
+      const salle = ex.room || '—';
+      const target = ex.section?.name ? `Sec. ${ex.section.name}` : ex.level?.name ? ex.level.name : '—';
+
+      const rowColor = idx % 2 === 0 ? [255, 255, 255] : [255, 251, 251];
+      doc.setFillColor(...rowColor);
+      doc.rect(margin, y, tableW, rowH, 'F');
+      doc.setDrawColor(252, 165, 165);
+      doc.rect(margin, y, tableW, rowH, 'S');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(30, 30, 30);
+
+      const cells = [dateStr, dayName, moduleName, horaire, salle, target];
+      cx = margin;
+      cells.forEach((cell, i) => {
+        const maxChars = Math.floor(colWidths[i] / 2.2);
+        const txt = cell.length > maxChars ? cell.slice(0, maxChars - 1) + '…' : cell;
+        if (i === 0) { doc.setFont('helvetica', 'bold'); doc.setTextColor(220, 38, 38); }
+        else if (i === 2) { doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 30, 30); }
+        else { doc.setFont('helvetica', 'normal'); doc.setTextColor(71, 85, 105); }
+        doc.text(txt, cx + 2, y + 7);
+        cx += colWidths[i];
+      });
+
+      y += rowH;
+      if (y > pageH - 16) { doc.addPage(); y = 20; }
+    });
+
+    // Footer
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(7);
+    doc.setTextColor(148, 163, 184);
+    doc.text(`${exams.length} examen(s)  ·  Généré le ${new Date().toLocaleDateString('fr-FR')}`, margin, pageH - 6);
+
+    doc.save(`examens_${selLevelName}.pdf`);
+  };
+
   // ── Add Timeslot ──
   const handleAddSlot = async (e) => {
     e.preventDefault(); setIsSubmittingSlot(true);
@@ -286,7 +504,7 @@ export default function TimetableManager() {
     setConfirmDelete({ isOpen: false, id: null, type: '' });
   };
 
-  const slotsByDay = DAYS.map((_, i) => timeslots.filter(s => s.day_of_week === i));
+  const slotsByDay = DAYS.map((_, i) => timeslots.filter(s => s.day_of_week === i && (user?.role === 'admin' || s.teacher_id === user?.id)));
   const GRID_HEIGHT = TIME_SLOTS.length * 64;
   const canShowSchedule = selSection && selSemester;
   const canShowExams = !!selLevel;
@@ -327,22 +545,33 @@ export default function TimetableManager() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => window.print()}
-              className="flex items-center gap-2 px-4 py-2.5 text-sm font-bold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all shadow-sm">
-              <Printer size={15} /> Imprimer
-            </button>
-            {activeTab === 'schedule' && canShowSchedule && (
-              <button onClick={() => setIsAddSlotOpen(true)}
-                className="flex items-center gap-2 px-4 py-2.5 text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-lg shadow-brand-500/30 transition-all">
-                <Plus size={15} /> Ajouter une séance
-              </button>
-            )}
-            {activeTab === 'exams' && canShowExams && (
-              <button onClick={() => setIsAddExamOpen(true)}
-                className="flex items-center gap-2 px-4 py-2.5 text-sm font-bold text-white bg-rose-500 hover:bg-rose-600 rounded-xl shadow-lg shadow-rose-500/30 transition-all">
-                <Plus size={15} /> Ajouter un examen
-              </button>
-            )}
+            {/* TAB ACTIONS */}
+            <div className="flex gap-2">
+              {activeTab === 'schedule' && canShowSchedule && (
+                <button onClick={exportSchedulePDF}
+                  className="flex items-center gap-2 px-4 py-2.5 text-sm font-bold text-brand-700 bg-brand-50 border border-brand-200 rounded-xl hover:bg-brand-100 transition-all shadow-sm">
+                  <FileDown size={15} /> Exporter PDF
+                </button>
+              )}
+              {activeTab === 'exams' && canShowExams && (
+                <button onClick={exportExamsPDF}
+                  className="flex items-center gap-2 px-4 py-2.5 text-sm font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl hover:bg-rose-100 transition-all shadow-sm">
+                  <FileDown size={15} /> Exporter PDF
+                </button>
+              )}
+              {activeTab === 'schedule' && user?.role === 'admin' && canShowSchedule && (
+                <button onClick={() => setIsAddSlotOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-lg shadow-brand-500/30 transition-all">
+                  <Plus size={15} /> Ajouter une séance
+                </button>
+              )}
+              {(user?.role === 'admin' || user?.role === 'teacher') && activeTab === 'exams' && canShowExams && (
+                <button onClick={() => setIsAddExamOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 text-sm font-bold text-white bg-rose-500 hover:bg-rose-600 rounded-xl shadow-lg shadow-rose-500/30 transition-all">
+                  <Plus size={15} /> Ajouter un examen
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -432,7 +661,7 @@ export default function TimetableManager() {
                           {slotsByDay[di].map(slot => (
                             <SessionCard key={slot.id} slot={slot}
                               onDelete={(id) => setConfirmDelete({ isOpen: true, id, type: 'slot' })}
-                              groups={sectionGroups} />
+                              groups={sectionGroups} userRole={user?.role} />
                           ))}
                         </div>
                       ))}
@@ -487,7 +716,7 @@ export default function TimetableManager() {
                             {monthExams.map(ex => (
                               <ExamCard key={ex.id} exam={ex}
                                 onDelete={(id) => setConfirmDelete({ isOpen: true, id, type: 'exam' })}
-                                sections={sections} levels={levels} />
+                                sections={sections} levels={levels} userRole={user?.role} />
                             ))}
                           </div>
                         </div>

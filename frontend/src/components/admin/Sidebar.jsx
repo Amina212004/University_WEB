@@ -1,16 +1,30 @@
-import { Home, LayoutGrid, GraduationCap, BookOpen, UserCircle, Settings, LogOut, CalendarDays } from 'lucide-react';
+import { Home, LayoutGrid, GraduationCap, BookOpen, UserCircle, Settings, LogOut, CalendarDays, FileText } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 export default function Sidebar({ activeTab, setActiveTab }) {
   const { user, logout } = useAuth();
 
-  const navItems = [
+  const isTeacher = user?.role === 'teacher';
+
+  const navItems = isTeacher ? [
+    // ── TEACHER NAV ──
+    { id: 'overview',   icon: <Home size={20} />,          label: 'Tableau de bord' },
+    { id: 'timetable',  icon: <CalendarDays size={20} />,  label: 'Mon Emploi du Temps' },
+    { id: 'students',   icon: <GraduationCap size={20} />, label: 'Mes Étudiants' },
+    { id: 'exams',      icon: <FileText size={20} />,      label: 'Mes Examens' },
+    { id: 'materials',  icon: <BookOpen size={20} />,      label: 'Cours & Docs' },
+    { id: 'profile',    icon: <UserCircle size={20} />,    label: 'Mon Profil' },
+    { id: 'settings',   icon: <Settings size={20} />,      label: 'Paramètres' },
+  ] : [
+    // ── ADMIN NAV ──
     { id: 'overview',   icon: <Home size={20} />,          label: 'Tableau de bord' },
     { id: 'hierarchy',  icon: <LayoutGrid size={20} />,    label: 'Structure Académique' },
     { id: 'timetable',  icon: <CalendarDays size={20} />,  label: 'Emplois du Temps' },
     { id: 'teachers',   icon: <BookOpen size={20} />,      label: 'Enseignants' },
     { id: 'students',   icon: <GraduationCap size={20} />, label: 'Étudiants' },
+    { id: 'materials',  icon: <BookOpen size={20} />,      label: 'Cours & Docs' },
     { id: 'profile',    icon: <UserCircle size={20} />,    label: 'Mon Profil' },
+    { id: 'settings',   icon: <Settings size={20} />,      label: 'Paramètres' },
   ];
 
   const initials = `${user?.first_name?.[0] || ''}${user?.last_name?.[0] || ''}`.toUpperCase();
