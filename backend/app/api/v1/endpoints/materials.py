@@ -30,10 +30,11 @@ async def upload_material(
     """
     Uploader un fichier de cours (Seul le professeur peut le faire)
     """
-    if current_user.role != UserRole.teacher:
+    if current_user.role != UserRole.TEACHER:
         raise HTTPException(status_code=403, detail="Seuls les enseignants peuvent publier des cours.")
 
     # Save file locally
+    os.makedirs("uploads", exist_ok=True)
     file_ext = file.filename.split(".")[-1]
     unique_filename = f"{uuid.uuid4().hex}.{file_ext}"
     file_path = os.path.join("uploads", unique_filename)
@@ -65,7 +66,7 @@ def get_materials_by_module(
     """
     # Note: On a real app we'd fetch the student's level/section/group to filter properly.
     # For now, we fetch all materials for the module, or apply filter if we know the user.
-    if current_user.role == UserRole.student:
+    if current_user.role == UserRole.STUDENT:
         # TODO: Get student enrollments to filter correctly. Right now, returning all for the module (simpler)
         materials = get_module_materials(db=db, module_id=module_id)
     else:
@@ -83,7 +84,7 @@ def delete_material(
     """
     Supprimer un document (Seul le prof propriétaire ou l'admin)
     """
-    if current_user.role not in [UserRole.teacher, UserRole.admin]:
+    if current_user.role not in [UserRole.TEACHER, UserRole.ADMIN]:
         raise HTTPException(status_code=403, detail="Non autorisé.")
         
     material = delete_course_material(db=db, material_id=material_id, teacher_id=current_user.id)

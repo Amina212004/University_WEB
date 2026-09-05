@@ -22,6 +22,21 @@ def _require_teacher(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
+def _get_teacher_module_ids(db: Session, teacher_id: int) -> List[int]:
+    """Helper to get all module IDs for a teacher, either directly assigned or in their timetable."""
+    # 1. Modules directly assigned
+    assigned_rows = db.query(teacher_modules.c.module_id).filter(teacher_modules.c.teacher_id == teacher_id).all()
+    # 2. Modules from timetable
+    timetable_rows = db.query(TimeSlot.module_id).filter(TimeSlot.teacher_id == teacher_id).all()
+    
+    # Combine and deduplicate, ignoring None
+    all_ids = set(
+        [r[0] for r in assigned_rows if r[0] is not None] + 
+        [r[0] for r in timetable_rows if r[0] is not None]
+    )
+    return list(all_ids)
+
+
 # ── Mes Modules ────────────────────────────────────────────────────────────────
 @router.get("/me/modules")
 def get_my_modules(
@@ -29,13 +44,17 @@ def get_my_modules(
     current_user: User = Depends(_require_teacher),
 ):
     """Retourne les modules enseignés par le professeur connecté, avec contexte académique."""
+    mod_ids = _get_teacher_module_ids(db, current_user.id)
+    if not mod_ids:
+        return []
+
     modules = (
         db.query(Module)
-        .join(teacher_modules, Module.id == teacher_modules.c.module_id)
-        .filter(teacher_modules.c.teacher_id == current_user.id)
+        .filter(Module.id.in_(mod_ids))
         .options(joinedload(Module.semester).joinedload(Semester.level).joinedload(Level.specialty))
         .all()
     )
+    
     result = []
     for m in modules:
         sem = m.semester
@@ -80,10 +99,13 @@ def get_my_students(
     Retourne les étudiants inscrits dans les niveaux correspondants
     aux modules enseignés par le professeur, regroupés par module.
     """
+    mod_ids = _get_teacher_module_ids(db, current_user.id)
+    if not mod_ids:
+        return []
+
     modules = (
         db.query(Module)
-        .join(teacher_modules, Module.id == teacher_modules.c.module_id)
-        .filter(teacher_modules.c.teacher_id == current_user.id)
+        .filter(Module.id.in_(mod_ids))
         .options(joinedload(Module.semester).joinedload(Semester.level))
         .all()
     )
@@ -110,8 +132,7 @@ def get_my_students(
                     "first_name": s.first_name,
                     "last_name": s.last_name,
                     "email": s.email,
-                }
-                for s in students
+                } for s in students
             ]
 
         result.append({
@@ -132,18 +153,13 @@ def get_my_exams(
     current_user: User = Depends(_require_teacher),
 ):
     """Retourne les examens planifiés pour les modules du professeur."""
-    module_ids = (
-        db.query(teacher_modules.c.module_id)
-        .filter(teacher_modules.c.teacher_id == current_user.id)
-        .all()
-    )
-    ids = [mid for (mid,) in module_ids]
-    if not ids:
+    mod_ids = _get_teacher_module_ids(db, current_user.id)
+    if not mod_ids:
         return []
 
     return (
         db.query(ExamSchedule)
-        .filter(ExamSchedule.module_id.in_(ids))
+        .filter(ExamSchedule.module_id.in_(mod_ids))
         .options(
             joinedload(ExamSchedule.module),
             joinedload(ExamSchedule.level),
@@ -161,12 +177,8 @@ def get_my_stats(
     current_user: User = Depends(_require_teacher),
 ):
     """Statistiques pour le dashboard enseignant."""
-    module_count = (
-        db.query(Module)
-        .join(teacher_modules, Module.id == teacher_modules.c.module_id)
-        .filter(teacher_modules.c.teacher_id == current_user.id)
-        .count()
-    )
+    mod_ids = _get_teacher_module_ids(db, current_user.id)
+    module_count = len(mod_ids)
 
     session_count = (
         db.query(TimeSlot)
@@ -174,25 +186,7 @@ def get_my_stats(
         .count()
     )
 
-    # Count unique students across all taught levels
-    modules = (
-        db.query(Module)
-        .join(teacher_modules, Module.id == teacher_modules.c.module_id)
-        .filter(teacher_modules.c.teacher_id == current_user.id)
-        .options(joinedload(Module.semester).joinedload(Semester.level))
-        .all()
-    )
-    level_ids = list({m.semester.level.id for m in modules if m.semester and m.semester.level})
     student_count = 0
-    if level_ids:
-        student_count = (
-            db.query(User.id)
-            .join(student_enrollments, User.id == student_enrollments.c.student_id)
-            .filter(student_enrollments.c.level_id.in_(level_ids))
-            .distinct()
-            .count()
-        )
-
     exam_count = 0
     module_ids = (
         db.query(teacher_modules.c.module_id)
