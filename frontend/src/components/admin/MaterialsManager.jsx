@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getFaculties, getDepartments, getSpecialties, getLevels, getSemestersByLevel, getSemesterModules, uploadMaterial, getModuleMaterials, deleteMaterial } from '../../api/services';
+import { getFaculties, getDepartments, getSpecialties, getLevels, getSemestersByLevel, getSemesterModules, uploadMaterial, getModuleMaterials, deleteMaterial, getTeacherModules } from '../../api/services';
 import { BookOpen, FileText, Upload, Trash2, Download, AlertTriangle, X, File, FileCode, CheckCircle, ChevronRight } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -14,6 +14,7 @@ export default function MaterialsManager() {
   const [levels, setLevels] = useState([]);
   const [semesters, setSemesters] = useState([]);
   const [modules, setModules] = useState([]);
+  const [teacherModules, setTeacherModules] = useState([]); // For teachers
   
   const [selectedFac, setSelectedFac] = useState('');
   const [selectedDep, setSelectedDep] = useState('');
@@ -33,8 +34,12 @@ export default function MaterialsManager() {
   const fileRef = useRef();
 
   useEffect(() => {
-    loadFaculties();
-  }, []);
+    if (user?.role === 'teacher') {
+      loadTeacherModules();
+    } else {
+      loadFaculties();
+    }
+  }, [user]);
 
   useEffect(() => {
     if (selectedModule) {
@@ -48,6 +53,13 @@ export default function MaterialsManager() {
     try {
       const res = await getFaculties();
       setFaculties(res.data);
+    } catch (err) { console.error(err); }
+  };
+
+  const loadTeacherModules = async () => {
+    try {
+      const res = await getTeacherModules();
+      setTeacherModules(res.data);
     } catch (err) { console.error(err); }
   };
 
@@ -186,32 +198,42 @@ export default function MaterialsManager() {
             <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center text-brand-600"><BookOpen size={16} /></div>
             <h3 className="font-black text-slate-700 text-sm">Sélection du module cible</h3>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-            <select value={selectedFac} onChange={handleFacChange} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:bg-white focus:border-brand-500">
-              <option value="">Faculté...</option>
-              {faculties.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-            </select>
-            <select value={selectedDep} onChange={handleDepChange} disabled={!selectedFac} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:bg-white focus:border-brand-500 disabled:opacity-50">
-              <option value="">Département...</option>
-              {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
-            <select value={selectedSpec} onChange={handleSpecChange} disabled={!selectedDep} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:bg-white focus:border-brand-500 disabled:opacity-50">
-              <option value="">Spécialité...</option>
-              {specialties.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-            <select value={selectedLevel} onChange={handleLevelChange} disabled={!selectedSpec} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:bg-white focus:border-brand-500 disabled:opacity-50">
-              <option value="">Niveau...</option>
-              {levels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-            </select>
-            <select value={selectedSemester} onChange={handleSemesterChange} disabled={!selectedLevel} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:bg-white focus:border-brand-500 disabled:opacity-50">
-              <option value="">Semestre...</option>
-              {semesters.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-            <select value={selectedModule} onChange={e => setSelectedModule(e.target.value)} disabled={!selectedSemester} className={`bg-slate-50 border rounded-xl px-3 py-2 text-xs font-bold outline-none focus:bg-white focus:border-brand-500 disabled:opacity-50 ${selectedModule ? 'border-brand-400 bg-brand-50 text-brand-800' : 'border-slate-200 text-slate-700'}`}>
-              <option value="">Module...</option>
-              {modules.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-          </div>
+          
+          {user?.role === 'teacher' ? (
+            <div className="max-w-md">
+              <select value={selectedModule} onChange={e => setSelectedModule(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:bg-white focus:border-brand-500">
+                <option value="">Sélectionnez un de vos modules...</option>
+                {teacherModules.map(m => <option key={m.id} value={m.id}>{m.name} {m.semester ? `(${m.semester.name})` : ''}</option>)}
+              </select>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+              <select value={selectedFac} onChange={handleFacChange} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:bg-white focus:border-brand-500">
+                <option value="">Faculté...</option>
+                {faculties.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+              <select value={selectedDep} onChange={handleDepChange} disabled={!selectedFac} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:bg-white focus:border-brand-500 disabled:opacity-50">
+                <option value="">Département...</option>
+                {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+              <select value={selectedSpec} onChange={handleSpecChange} disabled={!selectedDep} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:bg-white focus:border-brand-500 disabled:opacity-50">
+                <option value="">Spécialité...</option>
+                {specialties.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <select value={selectedLevel} onChange={handleLevelChange} disabled={!selectedSpec} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:bg-white focus:border-brand-500 disabled:opacity-50">
+                <option value="">Niveau...</option>
+                {levels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+              <select value={selectedSemester} onChange={handleSemesterChange} disabled={!selectedLevel} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:bg-white focus:border-brand-500 disabled:opacity-50">
+                <option value="">Semestre...</option>
+                {semesters.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <select value={selectedModule} onChange={e => setSelectedModule(e.target.value)} disabled={!selectedSemester} className={`bg-slate-50 border rounded-xl px-3 py-2 text-xs font-bold outline-none focus:bg-white focus:border-brand-500 disabled:opacity-50 ${selectedModule ? 'border-brand-400 bg-brand-50 text-brand-800' : 'border-slate-200 text-slate-700'}`}>
+                <option value="">Module...</option>
+                {modules.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </div>
+          )}
         </div>
 
         {/* ── DOCUMENTS LIST ── */}

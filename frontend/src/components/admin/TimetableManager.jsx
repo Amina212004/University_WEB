@@ -3,11 +3,13 @@ import {
   getFaculties, getDepartments, getSpecialties, getLevels,
   getSemestersByLevel, getSemesterModules, getLevelSections,
   getSectionTimetable, addTimeSlot, deleteTimeSlot,
-  getUsers, getExamsByLevel, addExam, deleteExam
+  getUsers, getExamsByLevel, addExam, deleteExam,
+  getModuleTeachers, assignTeacherToModule, removeTeacherFromModule
 } from '../../api/services';
 import {
   Calendar, Plus, Trash2, Clock, ChevronDown,
-  AlertTriangle, X, BookOpen, ClipboardList, FileDown
+  AlertTriangle, X, BookOpen, ClipboardList, FileDown,
+  Users, CheckCircle2, UserPlus, UserMinus
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import { useAuth } from '../../context/AuthContext';
@@ -145,7 +147,7 @@ function ExamCard({ exam, onDelete, sections, levels, userRole }) {
 // ─── Main Component ─────────────────────────────────────────────────────────────
 export default function TimetableManager() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('schedule'); // 'schedule' | 'exams'
+  const [activeTab, setActiveTab] = useState('schedule'); // 'schedule' | 'exams' | 'assignments'
 
   // Shared navigation state
   const [faculties, setFaculties] = useState([]);
@@ -177,6 +179,13 @@ export default function TimetableManager() {
 
   // Delete confirmations
   const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, id: null, type: '' });
+
+  // Assignments tab state
+  const [assignModules, setAssignModules] = useState([]);
+  const [assignModuleTeachers, setAssignModuleTeachers] = useState({});
+  const [assignLoadingId, setAssignLoadingId] = useState(null);
+  const [assignSelModule, setAssignSelModule] = useState(null);
+  const [assignSearch, setAssignSearch] = useState('');
 
   const selectedSectionObj = sections.find(s => String(s.id) === String(selSection));
   const sectionGroups = selectedSectionObj?.groups || [];
@@ -227,7 +236,12 @@ export default function TimetableManager() {
   };
   const handleSemesterChange = async (e) => {
     const v = e.target.value; setSelSemester(v);
-    if (v) { const r = await getSemesterModules(v); setModules(r.data); }
+    setAssignModules([]); setAssignModuleTeachers({}); setAssignSelModule(null);
+    if (v) { 
+      const r = await getSemesterModules(v); 
+      setModules(r.data); 
+      setAssignModules(r.data); 
+    }
   };
   const handleSectionChange = async (e) => {
     const v = e.target.value; setSelSection(v); setTimeslots([]);
@@ -239,6 +253,38 @@ export default function TimetableManager() {
   };
   const fetchExams = async () => {
     if (selLevel) { const r = await getExamsByLevel(selLevel); setExams(r.data); }
+  };
+
+  // ── Assignment Handlers ──
+  const loadModuleTeachers = async (moduleId) => {
+    setAssignLoadingId(moduleId);
+    try {
+      const res = await getModuleTeachers(moduleId);
+      setAssignModuleTeachers(prev => ({ ...prev, [moduleId]: res.data }));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAssignLoadingId(null);
+    }
+  };
+
+  const handleAssignTeacher = async (moduleId, teacherId) => {
+    try {
+      await assignTeacherToModule(teacherId, moduleId);
+      await loadModuleTeachers(moduleId);
+    } catch (err) {
+      alert(err.response?.data?.detail || "Erreur d'affectation");
+    }
+  };
+
+  const handleRemoveTeacher = async (moduleId, teacherId) => {
+    if (!window.confirm("Retirer ce professeur du module ?")) return;
+    try {
+      await removeTeacherFromModule(moduleId, teacherId);
+      await loadModuleTeachers(moduleId);
+    } catch (err) {
+      alert("Erreur de suppression");
+    }
   };
 
   // ── PDF Export: Weekly Schedule ──
@@ -858,6 +904,133 @@ export default function TimetableManager() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* ══ ASSIGNMENTS TAB ══════════════════════════════════════════════════════ */}
+      {activeTab === 'assignments' && user?.role === 'admin' && (
+        <div className="space-y-6">
+          <FilterBar
+            faculties={faculties} departments={departments} specialties={specialties}
+            levels={levels} semesters={semesters} sections={[]}
+            selFac={selFac} selDep={selDep} selSpec={selSpec} selLevel={selLevel}
+            selSemester={selSemester} selSection={selSection}
+            onFac={handleFacChange} onDep={handleDepChange} onSpec={handleSpecChange}
+            onLevel={handleLevelChange} onSemester={handleSemesterChange} onSection={handleSectionChange}
+            showSection={false} showSemester={true}
+          />
+
+          {!selSemester ? (
+            <div className="bg-white rounded-3xl border border-slate-100 p-12 text-center shadow-sm">
+              <Users size={48} className="mx-auto text-slate-200 mb-4" />
+              <h3 className="text-lg font-black text-slate-800">Sélectionnez un semestre</h3>
+              <p className="text-sm text-slate-400 mt-2">Choisissez la structure académique pour voir les modules et affecter les professeurs.</p>
+            </div>
+          ) : (
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-emerald-50/50">
+                <div>
+                  <h3 className="text-lg font-black text-slate-800">Modules du {selSemesterName}</h3>
+                  <p className="text-sm text-slate-500 font-medium">Affectez les professeurs aux modules pour leur donner accès.</p>
+                </div>
+                <div className="relative">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input type="text" placeholder="Rechercher un module..." value={assignSearch} onChange={e => setAssignSearch(e.target.value)}
+                    className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold w-64 focus:border-emerald-500 outline-none" />
+                </div>
+              </div>
+
+              <div className="divide-y divide-slate-100">
+                {assignModules.filter(m => m.name.toLowerCase().includes(assignSearch.toLowerCase())).map(module => {
+                  const isExpanded = assignSelModule === module.id;
+                  const moduleTeachers = assignModuleTeachers[module.id] || [];
+                  const isLoading = assignLoadingId === module.id;
+                  const availableTeachers = teachers.filter(t => !moduleTeachers.find(mt => mt.id === t.id));
+
+                  return (
+                    <div key={module.id} className={`transition-all ${isExpanded ? 'bg-slate-50' : 'hover:bg-slate-50'}`}>
+                      <div 
+                        onClick={() => {
+                          if (isExpanded) { setAssignSelModule(null); }
+                          else { setAssignSelModule(module.id); loadModuleTeachers(module.id); }
+                        }}
+                        className="p-5 flex items-center justify-between cursor-pointer"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${moduleTeachers.length > 0 ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
+                            <BookOpen size={20} />
+                          </div>
+                          <div>
+                            <h4 className="font-black text-slate-800 text-base">{module.name}</h4>
+                            <p className="text-xs text-slate-500 font-medium mt-0.5">{moduleTeachers.length} professeur(s) affecté(s)</p>
+                          </div>
+                        </div>
+                        <ChevronDown size={20} className={`text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                      </div>
+
+                      {isExpanded && (
+                        <div className="p-5 pt-0 pl-20 pr-8 pb-6">
+                          <div className="bg-white border border-slate-200 rounded-2xl p-4">
+                            <h5 className="text-xs font-black uppercase text-slate-400 mb-3 tracking-widest">Professeurs Actuels</h5>
+                            
+                            {isLoading ? (
+                              <div className="text-sm text-slate-400 animate-pulse font-medium">Chargement des professeurs...</div>
+                            ) : moduleTeachers.length === 0 ? (
+                              <div className="text-sm text-amber-600 font-bold bg-amber-50 p-3 rounded-xl border border-amber-100">
+                                Aucun professeur n'est affecté à ce module.
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
+                                {moduleTeachers.map(t => (
+                                  <div key={t.id} className="flex items-center justify-between bg-slate-50 border border-slate-100 p-2.5 rounded-xl">
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-black text-xs">
+                                        {t.first_name[0]}{t.last_name[0]}
+                                      </div>
+                                      <div>
+                                        <p className="text-sm font-bold text-slate-800">{t.first_name} {t.last_name}</p>
+                                        <p className="text-[10px] text-slate-500">{t.email}</p>
+                                      </div>
+                                    </div>
+                                    <button onClick={() => handleRemoveTeacher(module.id, t.id)} title="Retirer"
+                                      className="w-8 h-8 rounded-lg text-rose-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-colors">
+                                      <UserMinus size={16} />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            <div className="mt-4 pt-4 border-t border-slate-100">
+                              <h5 className="text-xs font-black uppercase text-slate-400 mb-3 tracking-widest">Ajouter un professeur</h5>
+                              <div className="flex gap-2">
+                                <select id={`select-teacher-${module.id}`}
+                                  className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-emerald-500">
+                                  <option value="">Sélectionner un professeur disponible...</option>
+                                  {availableTeachers.map(t => (
+                                    <option key={t.id} value={t.id}>{t.first_name} {t.last_name} ({t.email})</option>
+                                  ))}
+                                </select>
+                                <button 
+                                  onClick={() => {
+                                    const select = document.getElementById(`select-teacher-${module.id}`);
+                                    if (select.value) { handleAssignTeacher(module.id, select.value); select.value = ''; }
+                                  }}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-sm shadow-md transition-colors flex items-center gap-2">
+                                  <UserPlus size={16} /> Affecter
+                                </button>
+                              </div>
+                            </div>
+
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

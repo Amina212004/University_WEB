@@ -1,28 +1,29 @@
-import { Home, LayoutGrid, GraduationCap, BookOpen, UserCircle, Settings, LogOut, CalendarDays, FileText } from 'lucide-react';
+import { Home, LayoutGrid, GraduationCap, BookOpen, UserCircle, Settings, LogOut, CalendarDays, FileText, MessageSquare, Users } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
-export default function Sidebar({ activeTab, setActiveTab }) {
+export default function Sidebar({ activeTab, setActiveTab, unreadCount = 0 }) {
   const { user, logout } = useAuth();
 
   const isTeacher = user?.role === 'teacher';
 
   const navItems = isTeacher ? [
-    // ── TEACHER NAV ──
+    // ── TEACHER NAV (fonctions du professeur) ──
     { id: 'overview',   icon: <Home size={20} />,          label: 'Tableau de bord' },
     { id: 'timetable',  icon: <CalendarDays size={20} />,  label: 'Mon Emploi du Temps' },
     { id: 'students',   icon: <GraduationCap size={20} />, label: 'Mes Étudiants' },
     { id: 'exams',      icon: <FileText size={20} />,      label: 'Mes Examens' },
     { id: 'materials',  icon: <BookOpen size={20} />,      label: 'Cours & Docs' },
+    { id: 'messages',   icon: <MessageSquare size={20} />, label: 'Messagerie' },
     { id: 'profile',    icon: <UserCircle size={20} />,    label: 'Mon Profil' },
     { id: 'settings',   icon: <Settings size={20} />,      label: 'Paramètres' },
   ] : [
-    // ── ADMIN NAV ──
+    // ── ADMIN NAV (fonctions d’administration) ──
     { id: 'overview',   icon: <Home size={20} />,          label: 'Tableau de bord' },
     { id: 'hierarchy',  icon: <LayoutGrid size={20} />,    label: 'Structure Académique' },
     { id: 'timetable',  icon: <CalendarDays size={20} />,  label: 'Emplois du Temps' },
-    { id: 'teachers',   icon: <BookOpen size={20} />,      label: 'Enseignants' },
+    { id: 'teachers',   icon: <Users size={20} />,         label: 'Enseignants' },
     { id: 'students',   icon: <GraduationCap size={20} />, label: 'Étudiants' },
-    { id: 'materials',  icon: <BookOpen size={20} />,      label: 'Cours & Docs' },
+    { id: 'messages',   icon: <MessageSquare size={20} />, label: 'Messagerie' },
     { id: 'profile',    icon: <UserCircle size={20} />,    label: 'Mon Profil' },
     { id: 'settings',   icon: <Settings size={20} />,      label: 'Paramètres' },
   ];
@@ -45,18 +46,24 @@ export default function Sidebar({ activeTab, setActiveTab }) {
       <div className="flex flex-col items-center gap-2 flex-1">
         {navItems.map(item => {
           const isActive = activeTab === item.id;
+          const showBadge = item.id === 'messages' && unreadCount > 0;
           return (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
               title={item.label}
-              className={`w-12 h-12 flex items-center justify-center rounded-2xl transition-all duration-200 ${
+              className={`relative w-12 h-12 flex items-center justify-center rounded-2xl transition-all duration-200 ${
                 isActive
                   ? 'bg-brand-600 text-white shadow-lg shadow-brand-600/30'
                   : 'text-brand-400 hover:text-white hover:bg-brand-800'
               }`}
             >
               {item.icon}
+              {showBadge && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center px-1 border-2 border-brand-950 shadow-md">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
             </button>
           );
         })}

@@ -2,19 +2,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Users, BookOpen, GraduationCap, Calendar, Plus, Megaphone, Trash2, 
   ChevronRight, Settings, Info, X, Clock, Sparkles, Command, Layers, 
-  Radio, Activity, Search, MessageSquare, ArrowRight, CheckCircle2, Send
+  Radio, Activity, Search, MessageSquare, ArrowRight, CheckCircle2, Send, Bell
 } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, Tooltip } from 'recharts';
-import { 
+import {
   getAdminStats, getAcademicTree, getUsers, getMyUniversity, 
-  getAnnouncements, addAnnouncement, deleteAnnouncement,
-  sendMessage, getChatHistory, getConversations
+  getAnnouncements, addAnnouncement, deleteAnnouncement
 } from '../../api/services';
 
-export default function Overview({ user, setActiveTab }) {
+export default function Overview({ user, setActiveTab, conversations = [], unreadCount = 0, lastReadTime = 0 }) {
   const [stats, setStats]           = useState({ students: 0, teachers: 0, years: 0 });
-  const [recentUsers, setRecentUsers] = useState([]);
-  const [baseOtherUsers, setBaseOtherUsers] = useState([]);
   const [departments, setDepartments] = useState({});
   const [university, setUniversity]   = useState(null);
   const [announcements, setAnnouncements] = useState([]);
@@ -22,21 +19,6 @@ export default function Overview({ user, setActiveTab }) {
   const [newAnn, setNewAnn]           = useState({ title: '', content: '', target: 'all' });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeAnnTab, setActiveAnnTab] = useState('all');
-  
-  // Chat States
-  const [activeChatUser, setActiveChatUser] = useState(null);
-  const [chatMessages, setChatMessages]     = useState([]);
-  const [newMessageText, setNewMessageText] = useState('');
-  const [isSending, setIsSending]           = useState(false);
-  
-  // Custom states
-  const [rightPanelTab, setRightPanelTab] = useState('activities'); // 'activities' or 'teachers'
-  const messagesEndRef = useRef(null);
-  
-  // Notification Toast
-  const [toastMessage, setToastMessage] = useState(null);
-  const lastMsgTimeRef = useRef(0);
-  const isInitializedRef = useRef(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -46,12 +28,11 @@ export default function Overview({ user, setActiveTab }) {
           getAnnouncements(0, 10).then(res => setAnnouncements(res.data)).catch(console.error);
         }
 
-        const [studentsRes, teachersRes, statsRes, treeRes, convRes] = await Promise.all([
+        const [studentsRes, teachersRes, statsRes, treeRes] = await Promise.all([
           getUsers('student').catch(() => ({ data: [] })),
           getUsers('teacher').catch(() => ({ data: [] })),
           getAdminStats().catch(() => ({ data: { students: 0, teachers: 0, modules: 0 } })),
-          getAcademicTree().catch(() => ({ data: [] })),
-          getConversations().catch(() => ({ data: [] }))
+          getAcademicTree().catch(() => ({ data: [] }))
         ]);
 
         setStats({
@@ -59,17 +40,6 @@ export default function Overview({ user, setActiveTab }) {
           teachers: statsRes.data.teachers ?? teachersRes.data.length,
           years:    statsRes.data.modules   ?? 0
         });
-
-        const conversations = convRes.data || [];
-        const convIds = new Set(conversations.map(c => c.id));
-        const otherU = [...studentsRes.data, ...teachersRes.data]
-          .filter(u => !convIds.has(u.id))
-          .sort((a, b) => b.id - a.id);
-          
-        setBaseOtherUsers([...studentsRes.data, ...teachersRes.data]);
-        
-        const recent = [...conversations, ...otherU].slice(0, 15);
-        setRecentUsers(recent);
 
         const grouped = {};
         (treeRes.data || []).forEach(faculty => {
@@ -80,106 +50,10 @@ export default function Overview({ user, setActiveTab }) {
           });
         });
         setDepartments(grouped);
-
       } catch (err) { console.error(err); }
     };
     fetchData();
   }, [user]);
-
-  // Poll conversations
-  useEffect(() => {
-    const pollConvs = () => {
-      getConversations()
-        .then(res => {
-          const conversations = res.data || [];
-          const convIds = new Set(conversations.map(c => c.id));
-          const otherU = baseOtherUsers
-            .filter(u => !convIds.has(u.id))
-            .sort((a, b) => b.id - a.id);
-          setRecentUsers([...conversations, ...otherU].slice(0, 15));
-          
-          // Check for new messages
-          let latestTime = lastMsgTimeRef.current;
-          let newMsgUser = null;
-          let newMsgText = null;
-
-          conversations.forEach(c => {
-            if (c.last_message_date) {
-              const time = new Date(c.last_message_date).getTime();
-              if (time > latestTime && c.last_message_sender !== user?.id) {
-                // If it's a newer message and it's not sent by me
-                latestTime = time;
-                newMsgUser = c;
-                newMsgText = c.last_message;
-              }
-            }
-          });
-
-          // First time initialization
-          if (!isInitializedRef.current) {
-            isInitializedRef.current = true;
-            lastMsgTimeRef.current = latestTime;
-            return; 
-          }
-
-          if (latestTime > lastMsgTimeRef.current) {
-            lastMsgTimeRef.current = latestTime;
-            // Only show toast if the chat is not currently open with this user
-            if (activeChatUser?.id !== newMsgUser?.id) {
-              setToastMessage(`Nouveau message de ${newMsgUser.first_name} ${newMsgUser.last_name}: "${newMsgText}"`);
-              setTimeout(() => setToastMessage(null), 5000);
-            }
-          }
-        })
-        .catch(console.error);
-    };
-    const interval = setInterval(pollConvs, 4000);
-    return () => clearInterval(interval);
-  }, [baseOtherUsers, activeChatUser, user]);
-
-  // Message polling when chat is open
-  useEffect(() => {
-    if (!activeChatUser) return;
-
-    const loadMessages = () => {
-      getChatHistory(activeChatUser.id)
-        .then(res => setChatMessages(res.data))
-        .catch(console.error);
-    };
-
-    loadMessages();
-    const interval = setInterval(loadMessages, 4000);
-    return () => clearInterval(interval);
-  }, [activeChatUser]);
-
-  // Scroll to bottom of chat
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages]);
-
-  const handleOpenChat = (recipient) => {
-    setActiveChatUser(recipient);
-    setChatMessages([]);
-  };
-
-  const handleSendChat = async (e) => {
-    e.preventDefault();
-    if (!newMessageText.trim() || !activeChatUser) return;
-    setIsSending(true);
-    try {
-      const res = await sendMessage({
-        receiver_id: activeChatUser.id,
-        content: newMessageText.trim()
-      });
-      setChatMessages(prev => [...prev, res.data]);
-      setNewMessageText('');
-    } catch (err) {
-      console.error(err);
-      alert("Erreur lors de l'envoi du message");
-    } finally {
-      setIsSending(false);
-    }
-  };
 
   const handleAddAnn = async (e) => {
     e.preventDefault();
@@ -219,22 +93,33 @@ export default function Overview({ user, setActiveTab }) {
   const chartData = [
     { name: 'Jan', count: Math.round(stats.students * 0.45) || 12 },
     { name: 'Fév', count: Math.round(stats.students * 0.52) || 18 },
-    { name: 'Mar', count: Math.round(stats.students * 0.70) || 28 },
-    { name: 'Avr', count: Math.round(stats.students * 0.85) || 45 },
-    { name: 'Mai', count: stats.students || 60 },
+    { name: 'Mar', count: Math.round(stats.students * 0.62) || 25 },
+    { name: 'Avr', count: Math.round(stats.students * 0.71) || 32 },
+    { name: 'Mai', count: Math.round(stats.students * 0.80) || 40 },
+    { name: 'Jun', count: Math.round(stats.students * 0.90) || 47 },
+    { name: 'Jul', count: stats.students || 55 },
   ];
+
+  const unreadConvs = conversations.filter(c => {
+    if (c.role !== 'teacher') return false;
+    if (c.last_message_sender === user?.id) return false;
+    if (!c.last_message) return false;
+    if (lastReadTime > 0 && c.last_message_date && new Date(c.last_message_date).getTime() <= lastReadTime) return false;
+    return true;
+  });
 
   return (
     <div className="flex-1 overflow-y-auto min-h-screen p-6 md:p-8 relative" style={{ background: '#f5f3ff' }}>
-      
+
       {/* ── HEADER ── */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
         <div>
-          <span className="text-[10px] font-black uppercase tracking-widest text-[#7c3aed]">Console Administrateur</span>
-          <h2 className="text-2xl font-black text-slate-800 tracking-tight mt-0.5">Primary Dashboard</h2>
+          <span className="text-[10px] font-black uppercase tracking-widest text-[#7c3aed]">Administration</span>
+          <h2 className="text-2xl font-black text-slate-800 tracking-tight mt-0.5">
+            {getGreeting()}, {user?.first_name || 'Admin'} 👋
+          </h2>
+          <p className="text-xs text-slate-400 font-medium mt-1">{university?.name || 'Université'}</p>
         </div>
-        
-        {/* Search bar & Admin Avatar */}
         <div className="flex items-center gap-4 w-full md:w-auto">
           <div className="relative flex-1 md:w-64 bg-white/80 rounded-full px-4 py-2 flex items-center gap-2 border border-slate-200/50 shadow-sm">
             <Search size={16} className="text-slate-400" />
@@ -253,13 +138,12 @@ export default function Overview({ user, setActiveTab }) {
         </div>
       </div>
 
-      {/* ── MAIN DASHBOARD MATRIX (Matching user mockup layout) ── */}
+      {/* ── MAIN DASHBOARD MATRIX ── */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
         
         {/* MIDDLE & LEFT MAIN SECTION (9 cols) */}
         <div className="xl:col-span-9 space-y-8">
           
-          {/* Top row: Large purple chart + stacked small side cards */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             
             {/* LARGE PURPLE CHART CARD (2/3 width) */}
@@ -272,14 +156,12 @@ export default function Overview({ user, setActiveTab }) {
                   <div className="text-2xl font-black mt-1">Activité Réseau</div>
                 </div>
                 
-                {/* Custom tooltip styled box inside the card */}
                 <div className="bg-slate-900/60 border border-white/10 backdrop-blur-md rounded-2xl px-3 py-1.5 text-right">
                   <div className="text-[9px] font-bold text-slate-350">Statistiques Récentes</div>
                   <div className="text-xs font-black text-white">{stats.students} Membres</div>
                 </div>
               </div>
 
-              {/* Area Chart inside Purple Card */}
               <div className="h-32 w-full mt-2 z-10">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
@@ -307,7 +189,6 @@ export default function Overview({ user, setActiveTab }) {
                 </ResponsiveContainer>
               </div>
 
-              {/* Bottom statistics panel inside the card */}
               <div className="grid grid-cols-3 gap-2 pt-3 border-t border-white/10 text-center z-10">
                 <div>
                   <div className="text-[9px] font-bold text-violet-200 uppercase">Étudiants</div>
@@ -326,8 +207,6 @@ export default function Overview({ user, setActiveTab }) {
 
             {/* TWO SMALLER STACKED SIDE CARDS (1/3 width) */}
             <div className="flex flex-col gap-6">
-              
-              {/* Card A: Purple Horizontal Layout (Daily Jogging style) */}
               <div 
                 onClick={() => nav('timetable')}
                 className="bg-violet-100 rounded-[24px] p-5 flex items-center justify-between border border-violet-200/50 hover:shadow-md transition-all cursor-pointer group"
@@ -346,13 +225,11 @@ export default function Overview({ user, setActiveTab }) {
                 </div>
               </div>
 
-              {/* Card B: Pink Gradient Waves Layout (My Jogging style) */}
               <div 
                 onClick={() => nav('hierarchy')}
                 className="rounded-[24px] p-5 text-white flex flex-col justify-between h-[156px] relative overflow-hidden shadow-sm hover:shadow-md transition-all cursor-pointer"
                 style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #ec4899 100%)' }}
               >
-                {/* Floating Wave pattern inside pink card */}
                 <svg className="absolute bottom-0 left-0 right-0 w-full h-16 pointer-events-none opacity-25" viewBox="0 0 1440 320" preserveAspectRatio="none">
                   <path fill="#ffffff" d="M0,96L48,112C96,128,192,160,288,186.7C384,213,480,235,576,224C672,213,768,171,864,149.3C960,128,1056,128,1152,138.7C1248,149,1344,171,1392,181.3L1440,192L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z" />
                 </svg>
@@ -377,19 +254,15 @@ export default function Overview({ user, setActiveTab }) {
                   </div>
                 </div>
               </div>
-
             </div>
           </div>
 
           {/* BOTTOM ROW: 3 WHITE CARDS WITH HANGING BADGES */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6">
-            
-            {/* Card 1: Students */}
             <div 
               onClick={() => nav('students')}
               className="bg-white rounded-[26px] p-6 pt-10 shadow-sm border border-slate-100/50 hover:shadow-md transition-all cursor-pointer relative group"
             >
-              {/* Hanging badge top */}
               <div className="absolute top-0 left-6 -translate-y-1/2 w-11 h-11 rounded-2xl flex items-center justify-center text-white shadow-md transition-transform group-hover:scale-105"
                 style={{ background: 'linear-gradient(135deg, #7c3aed, #a855f7)' }}>
                 <GraduationCap size={18} />
@@ -401,7 +274,6 @@ export default function Overview({ user, setActiveTab }) {
                 </div>
                 <div className="text-2xl font-black text-slate-800">{stats.students}</div>
               </div>
-              {/* Progress bar */}
               <div className="space-y-1">
                 <div className="flex justify-between text-[10px] font-bold text-slate-400">
                   <span>Taux de présence</span>
@@ -413,12 +285,10 @@ export default function Overview({ user, setActiveTab }) {
               </div>
             </div>
 
-            {/* Card 2: Teachers */}
             <div 
               onClick={() => nav('teachers')}
               className="bg-white rounded-[26px] p-6 pt-10 shadow-sm border border-slate-100/50 hover:shadow-md transition-all cursor-pointer relative group"
             >
-              {/* Hanging badge top */}
               <div className="absolute top-0 left-6 -translate-y-1/2 w-11 h-11 rounded-2xl flex items-center justify-center text-white shadow-md transition-transform group-hover:scale-105"
                 style={{ background: 'linear-gradient(135deg, #9333ea, #a855f7)' }}>
                 <Users size={18} />
@@ -430,7 +300,6 @@ export default function Overview({ user, setActiveTab }) {
                 </div>
                 <div className="text-2xl font-black text-slate-800">{stats.teachers}</div>
               </div>
-              {/* Progress bar */}
               <div className="space-y-1">
                 <div className="flex justify-between text-[10px] font-bold text-slate-400">
                   <span>Disponibilité</span>
@@ -442,12 +311,10 @@ export default function Overview({ user, setActiveTab }) {
               </div>
             </div>
 
-            {/* Card 3: Timetable sessions */}
             <div 
               onClick={() => nav('timetable')}
               className="bg-white rounded-[26px] p-6 pt-10 shadow-sm border border-slate-100/50 hover:shadow-md transition-all cursor-pointer relative group"
             >
-              {/* Hanging badge top */}
               <div className="absolute top-0 left-6 -translate-y-1/2 w-11 h-11 rounded-2xl flex items-center justify-center text-white shadow-md transition-transform group-hover:scale-105"
                 style={{ background: 'linear-gradient(135deg, #5c4df1, #7c3aed)' }}>
                 <BookOpen size={18} />
@@ -459,50 +326,58 @@ export default function Overview({ user, setActiveTab }) {
                 </div>
                 <div className="text-2xl font-black text-slate-800">40h/sem</div>
               </div>
-              {/* Progress bar */}
               <div className="space-y-1">
                 <div className="flex justify-between text-[10px] font-bold text-slate-400">
                   <span>Taux de couverture</span>
-                  <span>73%</span>
+                  <span>78%</span>
                 </div>
                 <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-violet-500 rounded-full" style={{ width: '73%' }} />
+                  <div className="h-full bg-[#5c4df1] rounded-full" style={{ width: '78%' }} />
                 </div>
               </div>
             </div>
-
           </div>
 
-          {/* Announcements block (replacing activities feed for announcement management) */}
+          {/* Announcements block */}
           <div className="bg-white rounded-[28px] border border-slate-100 p-6 shadow-sm space-y-4">
             <div className="flex justify-between items-center">
               <div>
-                <h3 className="font-black text-sm text-slate-800">Actualités & Annonces</h3>
-                <p className="text-[10px] font-bold text-slate-400">Diffusion communautaire</p>
+                <h3 className="font-black text-sm text-slate-800 flex items-center gap-2">
+                  <Megaphone size={16} className="text-[#7c3aed]" /> Annonces
+                </h3>
+                <p className="text-[10px] text-slate-400 font-medium mt-0.5">Communication université</p>
               </div>
-              <button
+              <button 
                 onClick={() => setIsAddOpen(true)}
-                className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl text-white transition-all hover:opacity-90"
-                style={{ background: 'linear-gradient(135deg, #7c3aed, #a855f7)' }}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl font-black text-[10px] text-white shadow-md hover:opacity-90 transition-opacity"
+                style={{ background: 'linear-gradient(135deg, #7c3aed, #ec4899)' }}
               >
-                <Plus size={13} /> Publier
+                <Plus size={14} /> Nouvelle
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {announcements.slice(0, 4).map(ann => (
-                <div key={ann.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex gap-3 relative group transition-colors">
-                  <div className="w-8 h-8 rounded-lg bg-white shadow-sm flex items-center justify-center text-slate-400 group-hover:text-[#7c3aed] transition-colors shrink-0">
-                    <Megaphone size={14} />
+            {/* Filter tabs */}
+            <div className="flex gap-1 p-1 bg-slate-100 rounded-xl w-fit">
+              {[['all','Toutes'],['students','Étudiants'],['teachers','Profs']].map(([val, label]) => (
+                <button key={val} onClick={() => setActiveAnnTab(val)}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${activeAnnTab === val ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[300px] overflow-y-auto">
+              {filteredAnnouncements.map(ann => (
+                <div key={ann.id} className="group relative p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-violet-200 transition-colors">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Megaphone size={11} className="text-slate-400 shrink-0" />
+                    <p className="font-bold text-[11px] text-slate-800 truncate">{ann.title}</p>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-bold text-xs text-slate-800 truncate">{ann.title}</div>
-                    <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-2 leading-relaxed">{ann.content}</p>
-                    <div className="flex items-center gap-2 mt-2">
-                      <span className="px-2 py-0.5 rounded text-[8px] font-black bg-violet-100 text-violet-850">
-                        {ann.target === 'students' ? '🎓 Étudiants' : ann.target === 'teachers' ? '👨‍🏫 Profs' : '🌐 Tous'}
-                      </span>
-                    </div>
+                  <p className="text-[10px] text-slate-500 line-clamp-2 leading-relaxed">{ann.content}</p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="px-2 py-0.5 rounded text-[8px] font-black bg-violet-100 text-violet-850">
+                      {ann.target === 'students' ? '🎓 Étudiants' : ann.target === 'teachers' ? '👨‍🏫 Profs' : '🌐 Tous'}
+                    </span>
                   </div>
                   <button
                     onClick={() => handleDeleteAnn(ann.id)}
@@ -523,88 +398,58 @@ export default function Overview({ user, setActiveTab }) {
 
         </div>
 
-        {/* Toast Notification */}
-        {toastMessage && (
-          <div className="fixed bottom-6 right-6 bg-white border-l-4 border-[#7c3aed] shadow-lg rounded-xl p-4 flex items-center gap-3 animate-fade-in-up z-50 max-w-sm">
-            <div className="w-10 h-10 rounded-full bg-violet-100 flex items-center justify-center shrink-0">
-              <MessageSquare size={18} className="text-[#7c3aed]" />
-            </div>
-            <div>
-              <p className="font-bold text-xs text-slate-800">Nouveau message</p>
-              <p className="text-[11px] text-slate-500 line-clamp-2 mt-0.5">{toastMessage}</p>
-            </div>
-            <button onClick={() => setToastMessage(null)} className="ml-auto p-1.5 hover:bg-slate-100 rounded-lg text-slate-400">
-              <X size={14} />
-            </button>
-          </div>
-        )}
-
-        {/* RIGHT SIDEBAR PANEL (3 cols) - "Friends" style with messaging triggers */}
+        {/* RIGHT SIDEBAR PANEL (3 cols) */}
         <div className="xl:col-span-3 space-y-6">
           
-          {/* Members list (Friends List mock layout) */}
-          <div className="bg-white rounded-[28px] border border-slate-100 p-6 shadow-sm space-y-6">
+          {/* Messagerie / Notifications */}
+          <div className="bg-white rounded-[28px] border border-slate-100 p-5 shadow-sm space-y-4">
             <div className="flex justify-between items-center">
-              <h3 className="font-black text-sm text-slate-800">Messagerie Directe</h3>
-              <span className="text-[9px] font-black px-2 py-1 rounded-full bg-purple-50 text-[#7c3aed] border border-purple-100 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#7c3aed] animate-ping" />
-                Dispo
-              </span>
-            </div>
-
-            {/* Toggle buttons matching mock */}
-            <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
-              <button 
-                onClick={() => setRightPanelTab('activities')}
-                className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all ${rightPanelTab === 'activities' ? 'bg-white text-slate-850 shadow-sm' : 'text-slate-400'}`}
-              >
-                Tout le monde
-              </button>
-              <button 
-                onClick={() => setRightPanelTab('teachers')}
-                className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all ${rightPanelTab === 'teachers' ? 'bg-white text-slate-850 shadow-sm' : 'text-slate-400'}`}
-              >
-                Enseignants
-              </button>
-            </div>
-
-            {/* List triggers Chat Drawer */}
-            <div className="space-y-4 max-h-[320px] overflow-y-auto pr-1">
-              {recentUsers
-                .filter(u => rightPanelTab === 'activities' ? true : u.role === 'teacher')
-                .map((u, i) => (
-                  <div 
-                    key={u.id} 
-                    onClick={() => handleOpenChat(u)}
-                    className="flex items-center justify-between group cursor-pointer p-2 rounded-xl hover:bg-violet-50/50 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="relative">
-                        <div 
-                          className="w-10 h-10 rounded-full flex items-center justify-center font-black text-xs text-white shadow-sm border border-slate-200"
-                          style={{ background: u.role === 'teacher' ? 'linear-gradient(135deg,#7c3aed,#a855f7)' : 'linear-gradient(135deg,#5c4df1,#7c3aed)' }}
-                        >
-                          {u.first_name?.[0]?.toUpperCase()}{u.last_name?.[0]?.toUpperCase()}
-                        </div>
-                        <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white bg-emerald-500" />
-                      </div>
-                      <div>
-                        <div className="font-bold text-xs text-slate-850 leading-tight group-hover:text-[#7c3aed] transition-colors">
-                          {u.first_name} {u.last_name}
-                        </div>
-                        <div className="text-[9px] font-bold text-slate-400 mt-0.5 truncate max-w-[110px]">{u.email}</div>
-                      </div>
-                    </div>
-                    <button className="w-8 h-8 rounded-full bg-slate-50 hover:bg-[#7c3aed]/10 text-slate-400 hover:text-[#7c3aed] flex items-center justify-center transition-colors">
-                      <MessageSquare size={13} />
-                    </button>
-                  </div>
-                ))}
-              
-              {recentUsers.length === 0 && (
-                <div className="py-12 text-center text-slate-400">Aucun membre actif</div>
+              <h3 className="font-black text-sm text-slate-800 flex items-center gap-2">
+                <MessageSquare size={16} className="text-[#7c3aed]" /> Messagerie
+              </h3>
+              {unreadCount > 0 && (
+                <span className="bg-rose-500 text-white text-[9px] font-black px-2 py-0.5 rounded-full">
+                  {unreadCount} non lu{unreadCount > 1 ? 's' : ''}
+                </span>
               )}
             </div>
+
+            <div className="space-y-2 max-h-[250px] overflow-y-auto">
+              {unreadConvs.length === 0 ? (
+                <div className="py-4 text-center">
+                  <MessageSquare size={24} className="mx-auto mb-2 text-slate-200" />
+                  <p className="text-[11px] font-bold text-slate-400">Aucun nouveau message</p>
+                </div>
+              ) : (
+                unreadConvs.slice(0, 5).map(c => (
+                  <div
+                    key={c.id}
+                    onClick={() => nav('messages')}
+                    className="flex items-center gap-3 p-2.5 rounded-xl bg-violet-50 border border-violet-100 hover:bg-violet-100 transition-colors cursor-pointer"
+                  >
+                    <div className="relative shrink-0">
+                      <div className="w-9 h-9 rounded-full flex items-center justify-center font-black text-[10px] text-white shadow-sm"
+                           style={{ background: 'linear-gradient(135deg,#7c3aed,#a855f7)' }}>
+                        {c.first_name?.[0]?.toUpperCase()}{c.last_name?.[0]?.toUpperCase()}
+                      </div>
+                      <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-rose-500 border-2 border-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-[11px] text-slate-800 truncate">{c.first_name} {c.last_name}</p>
+                      <p className="text-[10px] text-violet-600 font-medium truncate">{c.last_message}</p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <button
+              onClick={() => nav('messages')}
+              className="w-full bg-slate-50 hover:bg-[#7c3aed]/10 text-[#7c3aed] font-bold text-xs py-2.5 rounded-xl transition-colors border border-slate-100 flex items-center justify-center gap-2"
+            >
+              <MessageSquare size={13} />
+              Ouvrir la Messagerie
+            </button>
           </div>
 
           {/* Campus Info Widget */}
@@ -627,99 +472,29 @@ export default function Overview({ user, setActiveTab }) {
                 <span className="text-emerald-500 flex items-center gap-1"><CheckCircle2 size={12} /> Validé</span>
               </div>
             </div>
-          </div>
 
+            {Object.entries(departments).length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Départements</p>
+                {Object.entries(departments).slice(0, 3).map(([dept, levels]) => (
+                  <div key={dept} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
+                    <span className="text-[11px] font-bold text-slate-700 truncate">{dept}</span>
+                    <span className="text-[9px] font-black text-[#7c3aed] bg-violet-50 px-2 py-0.5 rounded-full shrink-0 ml-2">{levels.length} niv.</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <button
+              onClick={() => nav('hierarchy')}
+              className="w-full text-center text-[10px] font-black text-[#7c3aed] hover:underline flex items-center justify-center gap-1"
+            >
+              Gérer la structure <ChevronRight size={12} />
+            </button>
+          </div>
         </div>
 
       </div>
-
-      {/* ── CHAT SLIDE-OVER DRAWER (Futuristic slide in messager) ── */}
-      {activeChatUser && (
-        <>
-          {/* Backdrop mask */}
-          <div 
-            onClick={() => setActiveChatUser(null)} 
-            className="fixed inset-0 z-40 bg-slate-950/20 backdrop-blur-sm transition-opacity" 
-          />
-          
-          <div className="fixed inset-y-0 right-0 z-50 w-full sm:w-[420px] bg-white shadow-2xl border-l border-slate-100 flex flex-col transition-all duration-300 transform translate-x-0">
-            {/* Header */}
-            <div className="px-6 py-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-              <div className="flex items-center gap-3">
-                <div 
-                  className="w-10 h-10 rounded-full flex items-center justify-center font-black text-sm text-white shadow-sm border border-slate-200"
-                  style={{ background: activeChatUser.role === 'teacher' ? 'linear-gradient(135deg,#7c3aed,#a855f7)' : 'linear-gradient(135deg,#5c4df1,#7c3aed)' }}
-                >
-                  {activeChatUser.first_name?.[0]?.toUpperCase()}{activeChatUser.last_name?.[0]?.toUpperCase()}
-                </div>
-                <div>
-                  <h3 className="font-black text-sm text-slate-800">{activeChatUser.first_name} {activeChatUser.last_name}</h3>
-                  <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase ${
-                    activeChatUser.role === 'admin' ? 'bg-rose-100 text-rose-700' :
-                    activeChatUser.role === 'teacher' ? 'bg-purple-100 text-purple-700' : 
-                    'bg-blue-100 text-blue-700'
-                  }`}>
-                    {activeChatUser.role === 'admin' ? 'Administration' : activeChatUser.role === 'teacher' ? 'Professeur' : 'Étudiant'}
-                  </span>
-                </div>
-              </div>
-              <button 
-                onClick={() => setActiveChatUser(null)}
-                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-400 transition-colors"
-              >
-                <X size={15} />
-              </button>
-            </div>
-
-            {/* Messages Body */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/50">
-              {chatMessages.map((msg) => {
-                const isMe = msg.sender_id === user.id;
-                return (
-                  <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[75%] rounded-[20px] px-4 py-2.5 text-xs font-medium leading-relaxed shadow-sm ${
-                      isMe 
-                        ? 'bg-[#7c3aed] text-white rounded-tr-sm' 
-                        : 'bg-white text-slate-700 border border-slate-100 rounded-tl-sm'
-                    }`}>
-                      <div>{msg.content}</div>
-                      <div className={`text-[8px] mt-1 text-right ${isMe ? 'text-violet-200' : 'text-slate-400'}`}>
-                        {new Date(msg.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-              
-              {chatMessages.length === 0 && (
-                <div className="h-full flex flex-col items-center justify-center text-slate-400">
-                  <MessageSquare size={36} className="text-slate-300 mb-2 animate-bounce" />
-                  <p className="text-xs font-bold">Aucun message. Envoyez le premier !</p>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* Message input footer */}
-            <form onSubmit={handleSendChat} className="p-4 border-t border-slate-100 bg-white flex gap-2">
-              <input 
-                type="text" 
-                value={newMessageText}
-                onChange={e => setNewMessageText(e.target.value)}
-                placeholder="Tapez votre message ici..."
-                className="flex-1 bg-slate-100 rounded-xl px-4 py-3 text-xs font-bold text-slate-700 outline-none focus:bg-white focus:border-[#7c3aed] border border-transparent transition-all"
-              />
-              <button 
-                type="submit"
-                disabled={isSending || !newMessageText.trim()}
-                className="w-10 h-10 rounded-xl bg-[#7c3aed] hover:bg-[#6d28d9] disabled:opacity-50 text-white flex items-center justify-center shadow-md shadow-violet-200 shrink-0 transition-colors"
-              >
-                <Send size={15} />
-              </button>
-            </form>
-          </div>
-        </>
-      )}
 
       {/* Add Announcement Modal */}
       {isAddOpen && (
