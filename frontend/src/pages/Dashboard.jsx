@@ -8,13 +8,23 @@ import StudentsManager from '../components/admin/StudentsManager';
 import TeachersManager from '../components/admin/TeachersManager';
 import HierarchyManager from '../components/admin/HierarchyManager';
 import TimetableManager from '../components/admin/TimetableManager';
+import ExamsManager from '../components/admin/ExamsManager';
 
 // Teacher components
 import TeacherOverview from '../components/admin/TeacherOverview';
 import TeacherTimetable from '../components/admin/TeacherTimetable';
 import TeacherStudents from '../components/admin/TeacherStudents';
 import TeacherExams from '../components/admin/TeacherExams';
+import TeacherGrades from '../components/admin/TeacherGrades';
 import MaterialsManager from '../components/admin/MaterialsManager';
+
+// Student components
+import StudentOverview from '../components/admin/StudentOverview';
+import StudentChatbot from '../components/admin/StudentChatbot';
+import StudentMaterials from '../components/admin/StudentMaterials';
+import StudentTimetable from '../components/admin/StudentTimetable';
+import StudentExams from '../components/admin/StudentExams';
+import StudentGrades from '../components/admin/StudentGrades';
 
 // Shared components
 import ProfileManager from '../components/admin/ProfileManager';
@@ -27,12 +37,15 @@ export default function Dashboard() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
   const isTeacher = user?.role === 'teacher';
+  const isStudent = user?.role === 'student';
+
+  const [selectedMaterialForAi, setSelectedMaterialForAi] = useState(null);
 
   // Global Chat States
   const [conversations, setConversations] = useState([]);
   const [toastMessage, setToastMessage] = useState(null);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [lastReadTime, setLastReadTime] = useState(0); // timestamp of when user last opened messages
+  const [lastReadTime, setLastReadTime] = useState(0);
   const lastMsgTimeRef = useRef(0);
   const isInitializedRef = useRef(false);
 
@@ -65,7 +78,6 @@ export default function Dashboard() {
           if (!isInitializedRef.current) {
             isInitializedRef.current = true;
             lastMsgTimeRef.current = latestTime;
-            // On first load, count messages already unread (received while user was away)
             if (activeTab !== 'messages') {
               const targetRole2 = user?.role === 'admin' ? 'teacher' : 'admin';
               const count = newConvs.filter(c => {
@@ -95,12 +107,11 @@ export default function Dashboard() {
     return () => clearInterval(convInterval);
   }, [user, activeTab]);
 
-  // Reset unread count when user opens messages tab
   useEffect(() => {
     if (activeTab === 'messages') {
       setUnreadCount(0);
       setToastMessage(null);
-      setLastReadTime(Date.now()); // mark all as read right now
+      setLastReadTime(Date.now());
     }
   }, [activeTab]);
 
@@ -111,34 +122,65 @@ export default function Dashboard() {
       <div className="flex-1 flex overflow-hidden">
         {/* ── Overview ── */}
         {activeTab === 'overview' && (
-          isTeacher
+          isStudent
+            ? <StudentOverview user={user} setActiveTab={setActiveTab} onSelectMaterialForAi={setSelectedMaterialForAi} />
+            : isTeacher
             ? <TeacherOverview user={user} setActiveTab={setActiveTab} conversations={conversations} unreadCount={unreadCount} lastReadTime={lastReadTime} />
             : <Overview user={user} setActiveTab={setActiveTab} conversations={conversations} unreadCount={unreadCount} lastReadTime={lastReadTime} />
         )}
 
-        {/* ── Timetable ── */}
-        {activeTab === 'timetable' && (
-          isTeacher ? <TeacherTimetable /> : <TimetableManager />
+        {/* ── Chatbot IA Étudiant ── */}
+        {activeTab === 'chatbot' && isStudent && (
+          <StudentChatbot initialMaterialId={selectedMaterialForAi} />
         )}
 
-        {/* ── Students ── */}
-        {activeTab === 'students' && (
+        {/* ── Timetable ── */}
+        {activeTab === 'timetable' && (
+          isStudent
+            ? <StudentTimetable />
+            : isTeacher
+            ? <TeacherTimetable />
+            : <TimetableManager />
+        )}
+
+        {/* ── Students (Admin / Teacher only) ── */}
+        {activeTab === 'students' && !isStudent && (
           isTeacher ? <TeacherStudents /> : <StudentsManager />
         )}
 
-        {/* ── Exams (teacher only) ── */}
-        {activeTab === 'exams' && isTeacher && <TeacherExams />}
+        {/* ── Exams ── */}
+        {activeTab === 'exams' && (
+          isStudent
+            ? <StudentExams />
+            : isTeacher
+            ? <TeacherExams />
+            : <ExamsManager />
+        )}
+
+        {/* ── Cours & Docs (Materials) ── */}
+        {activeTab === 'materials' && (
+          isStudent
+            ? <StudentMaterials setActiveTab={setActiveTab} onSelectMaterialForAi={setSelectedMaterialForAi} />
+            : isTeacher
+            ? <MaterialsManager />
+            : null
+        )}
+
+        {/* ── Notes / Grades ── */}
+        {activeTab === 'grades' && (
+          isStudent
+            ? <StudentGrades />
+            : isTeacher
+            ? <TeacherGrades />
+            : null
+        )}
 
         {/* ── Admin only ── */}
-        {activeTab === 'hierarchy' && !isTeacher && <HierarchyManager />}
-        {activeTab === 'teachers'  && !isTeacher && <TeachersManager />}
+        {activeTab === 'hierarchy' && !isTeacher && !isStudent && <HierarchyManager />}
+        {activeTab === 'teachers'  && !isTeacher && !isStudent && <TeachersManager />}
 
         {/* ── Shared ── */}
         {activeTab === 'messages'  && <MessagesManager conversations={conversations} />}
-
-        {/* ── Teacher only: Cours & Docs ── */}
-        {activeTab === 'materials' && isTeacher && <MaterialsManager />}
-
         {activeTab === 'profile'   && <ProfileManager />}
         {activeTab === 'settings'  && <SettingsManager />}
       </div>

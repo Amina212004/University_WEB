@@ -182,3 +182,50 @@ export const getTeacherTimetable  = () => API.get('/teacher/me/timetable');
 export const getTeacherStudents   = () => API.get('/teacher/me/students');
 export const getTeacherExams      = () => API.get('/teacher/me/exams');
 export const getTeacherStats      = () => API.get('/teacher/me/stats');
+
+export const uploadExamFile = (examId, file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  return API.post(`/teacher/me/exams/${examId}/upload`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+};
+
+// --- Admin Exams ---
+export const getAdminExams    = () => API.get('/academic/exams/all');
+export const getUploadedExams = () => API.get('/academic/exams/uploaded');
+
+// --- Student Space (Espace Étudiant & Chatbot IA) ---
+export const getStudentInfo      = () => API.get('/student/me/info');
+export const getStudentModules   = () => API.get('/student/me/modules');
+export const getStudentMaterials = () => API.get('/student/me/materials');
+export const getStudentTimetable = () => API.get('/student/me/timetable');
+export const getStudentExams     = () => API.get('/student/me/exams');
+
+export const summarizeStudentCourse = (payload) => API.post('/student/ai/summarize', payload);
+export const chatStudentAi          = (payload) => API.post('/student/ai/chat', payload);
+
+// --- Grades ---
+export const uploadGradesExcel = (moduleId, gradeType, academicYear, file) => {
+  const formData = new FormData();
+  formData.append('module_id', moduleId);
+  formData.append('grade_type', gradeType);
+  formData.append('academic_year', academicYear);
+  formData.append('file', file);
+  return API.post('/teacher/me/grades/upload-excel', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+};
+
+export const getTeacherGrades = (moduleId = null, gradeType = null) => {
+  const params = {};
+  if (moduleId) params.module_id = moduleId;
+  if (gradeType) params.grade_type = gradeType;
+  return API.get('/teacher/me/grades', { params });
+};
+
+export const getStudentGrades = () => API.get('/student/me/grades');
+
+export const getAdminGrades = (params = {}) => API.get('/academic/grades', { params });
+
+export const getModuleStudentsTemplate = (moduleId) => API.get(`/teacher/me/modules/${moduleId}/students-template`);
