@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_
-from typing import List
+from typing import List, Optional
 
 from app.db.session import get_db
 from app.core.dependencies import get_current_user
@@ -164,10 +164,62 @@ def get_my_exams(
             joinedload(ExamSchedule.module),
             joinedload(ExamSchedule.level),
             joinedload(ExamSchedule.section),
+            joinedload(ExamSchedule.uploaded_by),
         )
         .order_by(ExamSchedule.exam_date, ExamSchedule.start_time)
         .all()
     )
+
+
+# ── Upload Sujet d'Examen ──────────────────────────────────────────────────────
+from fastapi import UploadFile, File
+import shutil
+import os
+import uuid
+
+@router.post("/me/exams/{exam_id}/upload", response_model=ExamScheduleRead)
+async def upload_exam_file(
+    exam_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_teacher),
+):
+    """Le professeur uploade le fichier sujet d'examen pour un examen programmé."""
+    # Vérifier que l'examen existe
+    exam = db.query(ExamSchedule).filter(ExamSchedule.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Examen introuvable.")
+
+    # Vérifier que cet examen appartient à un module du professeur
+    mod_ids = _get_teacher_module_ids(db, current_user.id)
+    if exam.module_id not in mod_ids:
+        raise HTTPException(status_code=403, detail="Cet examen n'appartient pas à vos modules.")
+
+    # Valider l'extension du fichier
+    allowed_extensions = {'.pdf', '.doc', '.docx', '.odt', '.zip', '.rar'}
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Type de fichier non autorisé. Formats acceptés: PDF, DOC, DOCX, ODT, ZIP, RAR"
+        )
+
+    # Sauvegarder le fichier
+    os.makedirs("uploads/exams", exist_ok=True)
+    unique_filename = f"exam_{exam_id}_{uuid.uuid4().hex[:8]}{file_ext}"
+    file_path = os.path.join("uploads", "exams", unique_filename)
+
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # Mettre à jour l'enregistrement en base
+    exam.exam_file_url = f"/uploads/exams/{unique_filename}"
+    exam.exam_file_name = file.filename
+    exam.uploaded_by_id = current_user.id
+    db.commit()
+    db.refresh(exam)
+
+    return exam
 
 
 # ── Statistiques rapides ──────────────────────────────────────────────────────
@@ -188,14 +240,8 @@ def get_my_stats(
 
     student_count = 0
     exam_count = 0
-    module_ids = (
-        db.query(teacher_modules.c.module_id)
-        .filter(teacher_modules.c.teacher_id == current_user.id)
-        .all()
-    )
-    ids = [mid for (mid,) in module_ids]
-    if ids:
-        exam_count = db.query(ExamSchedule).filter(ExamSchedule.module_id.in_(ids)).count()
+    if mod_ids:
+        exam_count = db.query(ExamSchedule).filter(ExamSchedule.module_id.in_(mod_ids)).count()
 
     return {
         "modules": module_count,
@@ -203,3 +249,274 @@ def get_my_stats(
         "students": student_count,
         "exams": exam_count,
     }
+
+
+# ── Gestion des Notes ──────────────────────────────────────────────────────────
+from fastapi import UploadFile, File, Form
+from io import BytesIO
+import openpyxl
+from app.models.academic import Grade, GradeType
+from app.schemas.academic import GradeRead, GradeBulkUploadResponse
+
+
+@router.post("/me/grades/upload-excel", response_model=GradeBulkUploadResponse)
+async def upload_grades_excel(
+    module_id: int = Form(...),
+    grade_type: str = Form(...),  # "exam" | "td" | "tp"
+    academic_year: str = Form(default="2024-2025"),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_teacher),
+@router.get("/me/modules/{module_id}/students-template")
+def get_module_students_template(
+    module_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_teacher),
+):
+    """
+    Retourne la liste des étudiants inscrits au niveau de ce module
+    pour pré-remplir le modèle Excel du professeur.
+    """
+    mod_ids = _get_teacher_module_ids(db, current_user.id)
+    if module_id not in mod_ids:
+        raise HTTPException(status_code=403, detail="Ce module ne vous est pas affecté.")
+
+    module = db.query(Module).filter(Module.id == module_id).options(
+        joinedload(Module.semester).joinedload(Semester.level)
+    ).first()
+    if not module or not module.semester or not module.semester.level:
+        return []
+
+    level_id = module.semester.level.id
+    students = (
+        db.query(User)
+        .join(student_enrollments, User.id == student_enrollments.c.student_id)
+        .filter(student_enrollments.c.level_id == level_id)
+        .order_by(User.last_name, User.first_name)
+        .all()
+    )
+
+    return [
+        {
+            "id": s.id,
+            "last_name": s.last_name,
+            "first_name": s.first_name,
+            "email": s.email,
+        }
+        for s in students
+    ]
+
+
+@router.post("/me/grades/upload-excel", response_model=GradeBulkUploadResponse)
+async def upload_grades_excel(
+    module_id: int = Form(...),
+    grade_type: str = Form(...),  # "exam" | "td" | "tp"
+    academic_year: str = Form(default="2024-2025"),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_teacher),
+):
+    """
+    Upload des notes depuis un fichier Excel avec détection intelligente :
+    Supporte :
+    - ID / Numéro étudiant (ex: 12)
+    - Nom + Prénom (ex: Benali Ahmed)
+    - Email (ex: ahmed@univ.dz)
+    - Colonne Note (0-20)
+    """
+    # Valider le type de note
+    try:
+        gtype = GradeType(grade_type.lower())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="grade_type doit être 'exam', 'td' ou 'tp'")
+
+    # Vérifier que le module appartient au professeur
+    mod_ids = _get_teacher_module_ids(db, current_user.id)
+    if module_id not in mod_ids:
+        raise HTTPException(status_code=403, detail="Ce module ne vous est pas affecté.")
+
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Veuillez fournir un fichier Excel (.xlsx ou .xls)")
+
+    try:
+        contents = await file.read()
+        wb = openpyxl.load_workbook(filename=BytesIO(contents), data_only=True)
+        ws = wb.active
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Impossible de lire le fichier Excel : {str(e)}")
+
+    # Pré-charger tous les étudiants de l'université pour recherche ultra rapide
+    all_students = db.query(User).filter(
+        User.university_id == current_user.university_id,
+        User.role == UserRole.STUDENT
+    ).all()
+
+    students_by_id = {s.id: s for s in all_students}
+    students_by_email = {s.email.lower().strip(): s for s in all_students if s.email}
+    students_by_name = {f"{s.last_name.lower().strip()} {s.first_name.lower().strip()}": s for s in all_students}
+    students_by_name_rev = {f"{s.first_name.lower().strip()} {s.last_name.lower().strip()}": s for s in all_students}
+
+    # Analyser les en-têtes (ligne 1)
+    header_row = [str(cell).strip().lower() if cell is not None else "" for cell in next(ws.iter_rows(min_row=1, max_row=1, values_only=True))]
+    
+    col_id_idx = None
+    col_nom_idx = None
+    col_prenom_idx = None
+    col_email_idx = None
+    col_note_idx = None
+
+    for idx, h in enumerate(header_row):
+        if any(kw in h for kw in ['id', 'matricule', 'num', 'numero', 'code']):
+            col_id_idx = idx
+        elif any(kw in h for kw in ['prenom', 'first_name', 'firstname']):
+            col_prenom_idx = idx
+        elif any(kw in h for kw in ['nom', 'last_name', 'lastname']):
+            col_nom_idx = idx
+        elif 'email' in h or 'mail' in h:
+            col_email_idx = idx
+        elif any(kw in h for kw in ['note', 'score', 'examen', 'eval', 'mark']):
+            col_note_idx = idx
+
+    imported = 0
+    updated = 0
+    errors = 0
+    error_details = []
+
+    for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+        if not row or all(c is None or str(c).strip() == "" for c in row):
+            continue
+
+        # Trouver la note et l'étudiant
+        student = None
+        score_val = None
+
+        # 1. Si les colonnes d'en-tête ont été identifiées
+        if col_note_idx is not None and col_note_idx < len(row):
+            score_val = row[col_note_idx]
+
+        # Recherche de l'étudiant par ID
+        if col_id_idx is not None and col_id_idx < len(row) and row[col_id_idx] is not None:
+            try:
+                sid = int(float(str(row[col_id_idx]).strip()))
+                student = students_by_id.get(sid)
+            except (ValueError, TypeError):
+                pass
+
+        # Recherche par email si pas trouvé
+        if not student and col_email_idx is not None and col_email_idx < len(row) and row[col_email_idx]:
+            em = str(row[col_email_idx]).strip().lower()
+            student = students_by_email.get(em)
+
+        # Recherche par Nom + Prénom si pas trouvé
+        if not student and col_nom_idx is not None and col_prenom_idx is not None:
+            nom = str(row[col_nom_idx] or "").strip().lower()
+            prenom = str(row[col_prenom_idx] or "").strip().lower()
+            student = students_by_name.get(f"{nom} {prenom}") or students_by_name_rev.get(f"{prenom} {nom}")
+
+        # 2. Si pas d'en-tête formel, détection automatique selon le nombre de colonnes
+        if not student:
+            # Essai colonne 0 comme ID ou email ou Nom
+            c0 = str(row[0]).strip() if len(row) > 0 and row[0] is not None else ""
+            c1 = str(row[1]).strip() if len(row) > 1 and row[1] is not None else ""
+            
+            # Cas A : Colonne 0 = ID numérique (ex: 14)
+            if c0.isdigit():
+                student = students_by_id.get(int(c0))
+            # Cas B : Colonne 0 = Email
+            elif '@' in c0:
+                student = students_by_email.get(c0.lower())
+            # Cas C : Colonne 0 = Nom, Colonne 1 = Prénom
+            elif len(row) >= 3 and row[2] is not None:
+                student = students_by_name.get(f"{c0.lower()} {c1.lower()}") or students_by_name_rev.get(f"{c0.lower()} {c1.lower()}")
+
+            # Trouver la note : dernière colonne numérique
+            if score_val is None:
+                for val in reversed(row):
+                    if val is not None and str(val).strip() != "":
+                        try:
+                            _s = float(str(val).replace(',', '.'))
+                            if 0 <= _s <= 20:
+                                score_val = _s
+                                break
+                        except ValueError:
+                            pass
+
+        if not student:
+            errors += 1
+            info_label = f"Ligne {row_idx}: Étudiant non identifié ({row[:3]})"
+            error_details.append(info_label)
+            continue
+
+        # Convertir et vérifier la note
+        try:
+            if score_val is None:
+                raise ValueError("Note absente")
+            score = float(str(score_val).replace(',', '.'))
+            if score < 0 or score > 20:
+                raise ValueError("Note hors plage (0-20)")
+        except (TypeError, ValueError) as err_score:
+            errors += 1
+            error_details.append(f"Ligne {row_idx} ({student.first_name} {student.last_name}): note invalide '{score_val}'")
+            continue
+
+        # Upsert
+        existing = db.query(Grade).filter(
+            Grade.student_id == student.id,
+            Grade.module_id == module_id,
+            Grade.grade_type == gtype,
+            Grade.academic_year == academic_year,
+        ).first()
+
+        if existing:
+            existing.score = score
+            existing.uploaded_by_id = current_user.id
+            updated += 1
+        else:
+            new_grade = Grade(
+                student_id=student.id,
+                module_id=module_id,
+                grade_type=gtype,
+                score=score,
+                academic_year=academic_year,
+                uploaded_by_id=current_user.id,
+            )
+            db.add(new_grade)
+            imported += 1
+
+    db.commit()
+
+    total = imported + updated
+    return GradeBulkUploadResponse(
+        imported=imported,
+        updated=updated,
+        errors=errors,
+        error_details=error_details[:20],
+        message=f"{total} note(s) traitée(s) avec succès ({imported} créées, {updated} modifiées, {errors} non résolues)."
+    )
+
+
+@router.get("/me/grades", response_model=list[GradeRead])
+def get_my_uploaded_grades(
+    module_id: Optional[int] = None,
+    grade_type: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_require_teacher),
+):
+    """Retourne toutes les notes uploadées par le professeur connecté."""
+    from sqlalchemy.orm import joinedload
+    query = db.query(Grade).filter(Grade.uploaded_by_id == current_user.id)
+    if module_id:
+        query = query.filter(Grade.module_id == module_id)
+    if grade_type:
+        try:
+            gtype = GradeType(grade_type.lower())
+            query = query.filter(Grade.grade_type == gtype)
+        except ValueError:
+            pass
+
+    grades = query.options(
+        joinedload(Grade.student),
+        joinedload(Grade.module),
+        joinedload(Grade.uploaded_by),
+    ).order_by(Grade.module_id, Grade.grade_type, Grade.student_id).all()
+    return grades

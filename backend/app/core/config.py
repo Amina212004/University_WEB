@@ -22,9 +22,15 @@ class Settings(BaseSettings):
     SMTP_USER: str = "uniorau@gmail.com"
     SMTP_PASSWORD: str = "uniora2026"
 
+    # AI Keys
+    GROQ_API_KEY: Optional[str] = None
+    GEMINI_API_KEY: Optional[str] = None
+    OPENAI_API_KEY: Optional[str] = None
+
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"
 
 
 settings = Settings()

@@ -31,7 +31,7 @@ async def submit_exam_draft(
     """
     Soumettre un brouillon de sujet d'examen (Enseignant uniquement).
     """
-    if current_user.role != UserRole.teacher:
+    if current_user.role != UserRole.TEACHER:
         raise HTTPException(status_code=403, detail="Seuls les enseignants peuvent soumettre des examens.")
 
     # Save file locally
@@ -55,7 +55,7 @@ def get_my_drafts(
     """
     Liste des sujets d'examen soumis par l'enseignant courant.
     """
-    if current_user.role != UserRole.teacher:
+    if current_user.role != UserRole.TEACHER:
         raise HTTPException(status_code=403, detail="Non autorisé.")
         
     return get_teacher_exam_drafts(db=db, teacher_id=current_user.id)
@@ -68,7 +68,7 @@ def get_pending_drafts(
     """
     (Admin) Liste de tous les sujets d'examen en attente de validation.
     """
-    if current_user.role != UserRole.admin:
+    if current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Seuls les administrateurs peuvent voir les sujets en attente.")
         
     return get_pending_exam_drafts(db=db)
@@ -83,7 +83,7 @@ def review_draft(
     """
     (Admin) Approuver ou rejeter un sujet d'examen.
     """
-    if current_user.role != UserRole.admin:
+    if current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Seuls les administrateurs peuvent valider un examen.")
         
     draft = get_exam_draft(db=db, draft_id=draft_id)

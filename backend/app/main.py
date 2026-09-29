@@ -4,9 +4,19 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.api.v1.router import api_router
 import os
+from dotenv import load_dotenv
+
+# Charger les variables d'environnement (.env)
+load_dotenv()
 
 # Création du dossier uploads s'il n'existe pas
 os.makedirs("uploads", exist_ok=True)
+
+# Auto-create tables (including any new ones like grades)
+from app.db.base import Base
+from app.db.session import engine
+import app.models  # noqa: F401 – registers all models with Base metadata
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

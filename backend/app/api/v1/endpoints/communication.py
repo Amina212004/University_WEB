@@ -79,11 +79,15 @@ def get_conversations_list(
         if msg.receiver_id != current_user.id:
             user_ids.add(msg.receiver_id)
             
-    # Also add admins if current_user is teacher, so they can start a chat
+    # Also add admins if current_user is teacher, or teachers if current_user is admin, so they can start a chat
     if current_user.role == UserRole.TEACHER:
         admins = db.query(User).filter(User.university_id == current_user.university_id, User.role == UserRole.ADMIN).all()
         for admin in admins:
             user_ids.add(admin.id)
+    elif current_user.role == UserRole.ADMIN:
+        teachers = db.query(User).filter(User.university_id == current_user.university_id, User.role == UserRole.TEACHER).all()
+        for teacher in teachers:
+            user_ids.add(teacher.id)
             
     if not user_ids:
         return []
@@ -117,4 +121,5 @@ def get_conversations_list(
             "last_message_sender": last_msg["sender_id"] if last_msg else None
         })
         
+    result.sort(key=lambda x: x["last_message_date"] or "", reverse=True)
     return result

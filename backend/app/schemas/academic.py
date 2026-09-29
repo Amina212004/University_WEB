@@ -174,6 +174,10 @@ class ExamScheduleRead(ExamScheduleBase):
     id: int
     module: Optional[ModuleRead] = None
 
+    # Fichier sujet uploadé par le prof
+    exam_file_url: Optional[str] = None
+    exam_file_name: Optional[str] = None
+
     class SectionMini(BaseModel):
         id: int
         name: str
@@ -184,7 +188,59 @@ class ExamScheduleRead(ExamScheduleBase):
         name: str
         model_config = {"from_attributes": True}
 
+    class UserMini(BaseModel):
+        id: int
+        first_name: str
+        last_name: str
+        model_config = {"from_attributes": True}
+
     section: Optional[SectionMini] = None
     level: Optional[LevelMini] = None
+    uploaded_by: Optional[UserMini] = None
 
     model_config = {"from_attributes": True}
+
+# --- Grade Schemas ---
+from datetime import datetime as DatetimeType
+from app.models.academic import GradeType
+
+class GradeRead(BaseModel):
+    id: int
+    student_id: int
+    module_id: int
+    grade_type: GradeType
+    score: float
+    academic_year: str
+    created_at: Optional[DatetimeType] = None
+
+    class StudentMini(BaseModel):
+        id: int
+        first_name: str
+        last_name: str
+        email: str
+        model_config = {'from_attributes': True}
+
+    class ModuleMini(BaseModel):
+        id: int
+        name: str
+        model_config = {'from_attributes': True}
+
+    class TeacherMini(BaseModel):
+        id: int
+        first_name: str
+        last_name: str
+        model_config = {'from_attributes': True}
+
+    student: Optional[StudentMini] = None
+    module: Optional[ModuleMini] = None
+    uploaded_by: Optional[TeacherMini] = None
+
+    model_config = {'from_attributes': True}
+
+
+class GradeBulkUploadResponse(BaseModel):
+    imported: int
+    updated: int
+    errors: int
+    error_details: List[str] = []
+    message: str

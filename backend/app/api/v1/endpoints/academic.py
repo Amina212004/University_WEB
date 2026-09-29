@@ -282,6 +282,50 @@ def remove_timeslot(
 # --- Exams ---
 from app.crud.academic import create_exam, get_exams_by_level, delete_exam
 from app.schemas.academic import ExamScheduleCreate, ExamScheduleRead
+from app.models.academic import ExamSchedule as ExamScheduleModel
+
+@router.get("/exams/all", response_model=List[ExamScheduleRead])
+def list_all_exams(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """(Admin) Liste tous les examens de l'université."""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Accès réservé aux administrateurs.")
+    from sqlalchemy.orm import joinedload
+    return (
+        db.query(ExamScheduleModel)
+        .options(
+            joinedload(ExamScheduleModel.module),
+            joinedload(ExamScheduleModel.level),
+            joinedload(ExamScheduleModel.section),
+            joinedload(ExamScheduleModel.uploaded_by),
+        )
+        .order_by(ExamScheduleModel.exam_date, ExamScheduleModel.start_time)
+        .all()
+    )
+
+@router.get("/exams/uploaded", response_model=List[ExamScheduleRead])
+def list_uploaded_exams(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """(Admin) Liste les examens dont le sujet a été uploadé par un professeur."""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Accès réservé aux administrateurs.")
+    from sqlalchemy.orm import joinedload
+    return (
+        db.query(ExamScheduleModel)
+        .filter(ExamScheduleModel.exam_file_url != None)
+        .options(
+            joinedload(ExamScheduleModel.module),
+            joinedload(ExamScheduleModel.level),
+            joinedload(ExamScheduleModel.section),
+            joinedload(ExamScheduleModel.uploaded_by),
+        )
+        .order_by(ExamScheduleModel.exam_date.desc())
+        .all()
+    )
 
 @router.get("/levels/{level_id}/exams", response_model=List[ExamScheduleRead])
 def list_exams(
@@ -310,6 +354,7 @@ def remove_exam(
         raise HTTPException(status_code=404, detail="Examen introuvable")
     return {"message": "Examen supprimé"}
 
+
 # --- Teacher Module Assignment ---
 from app.crud.academic import assign_teacher_to_module, remove_teacher_from_module
 
@@ -336,3 +381,39 @@ def remove_teacher(
     if not success:
         raise HTTPException(status_code=404, detail="Module ou professeur introuvable")
     return {"message": "Professeur retiré du module"}
+
+
+# --- Grades (Admin view) ---
+from app.models.academic import Grade, GradeType as GradeTypeEnum
+from app.schemas.academic import GradeRead
+
+@router.get("/grades", response_model=List[GradeRead])
+def list_all_grades(
+    module_id: int = None,
+    student_id: int = None,
+    grade_type: str = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """(Admin) Liste toutes les notes avec filtres optionnels."""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Accès réservé aux administrateurs.")
+
+    from sqlalchemy.orm import joinedload
+    query = db.query(Grade)
+    if module_id:
+        query = query.filter(Grade.module_id == module_id)
+    if student_id:
+        query = query.filter(Grade.student_id == student_id)
+    if grade_type:
+        try:
+            gtype = GradeTypeEnum(grade_type.lower())
+            query = query.filter(Grade.grade_type == gtype)
+        except ValueError:
+            pass
+
+    return query.options(
+        joinedload(Grade.student),
+        joinedload(Grade.module),
+        joinedload(Grade.uploaded_by),
+    ).order_by(Grade.module_id, Grade.grade_type, Grade.student_id).all()

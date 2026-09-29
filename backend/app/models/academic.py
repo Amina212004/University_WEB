@@ -148,7 +148,8 @@ class TimeSlot(Base):
     section = relationship("Section")
     group = relationship("Group")
 
-from sqlalchemy import Date
+from sqlalchemy import Date, Float, DateTime
+from sqlalchemy.sql import func
 
 class ExamSchedule(Base):
     __tablename__ = "exam_schedules"
@@ -164,6 +165,37 @@ class ExamSchedule(Base):
     level_id = Column(Integer, ForeignKey("levels.id", ondelete="CASCADE"), nullable=True)
     section_id = Column(Integer, ForeignKey("sections.id", ondelete="CASCADE"), nullable=True)
 
+    # Fichier sujet uploadé par le professeur
+    exam_file_url = Column(String(500), nullable=True)
+    exam_file_name = Column(String(255), nullable=True)
+    uploaded_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
     module = relationship("Module")
     level = relationship("Level")
     section = relationship("Section")
+    uploaded_by = relationship("User", foreign_keys=[uploaded_by_id])
+
+
+class GradeType(str, enum.Enum):
+    EXAM = "exam"
+    TD   = "td"
+    TP   = "tp"
+
+
+class Grade(Base):
+    """Note d'un étudiant pour un module (Examen, TD ou TP)."""
+    __tablename__ = "grades"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    student_id      = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    module_id       = Column(Integer, ForeignKey("modules.id", ondelete="CASCADE"), nullable=False, index=True)
+    uploaded_by_id  = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    grade_type      = Column(Enum(GradeType), nullable=False)
+    score           = Column(Float, nullable=False)          # note / 20
+    academic_year   = Column(String(20), nullable=False, default="2024-2025")
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at      = Column(DateTime(timezone=True), onupdate=func.now())
+
+    student     = relationship("User", foreign_keys=[student_id])
+    module      = relationship("Module")
+    uploaded_by = relationship("User", foreign_keys=[uploaded_by_id])
